@@ -1,0 +1,16 @@
+.git
+.venv
+.local
+.tools
+**/__pycache__
+**/*.egg-info
+.pytest_cache
+.env*
+data
+tests
+*.fit
+*.fit.gz
+*.tcx
+*.gpx
+adapters/
+dashboard/

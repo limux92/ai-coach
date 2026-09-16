@@ -1,0 +1,18 @@
+{
+  "name": "magne-training-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@auth0/auth0-spa-js": "2.24.1"
+  },
+  "devDependencies": {
+    "vite": "7.3.6"
+  }
+}

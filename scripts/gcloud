@@ -1,0 +1,5 @@
+#!/bin/zsh
+set -eu
+COACH_ROOT="${0:A:h:h}"
+export CLOUDSDK_CONFIG="$COACH_ROOT/.local/gcloud"
+exec "$COACH_ROOT/.tools/google-cloud-sdk/bin/gcloud" "$@"

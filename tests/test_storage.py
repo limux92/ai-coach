@@ -1,0 +1,111 @@
+"""Exercise archive immutability and lease ownership without Google connections."""
+
+from __future__ import annotations
+
+import copy
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+
+import pytest
+from google.api_core.exceptions import PreconditionFailed
+
+from ai_coach import storage
+
+
+class FakeBucket:
+    name = "private-archive"
+
+    def __init__(self):
+        self.contents = {}
+        self.uploads = []
+
+    def blob(self, name):
+        bucket = self
+        class Blob:
+            def upload_from_string(self, data, *, content_type, if_generation_match, checksum):
+                bucket.uploads.append({"name": name, "precondition": if_generation_match, "checksum": checksum})
+                if name in bucket.contents and if_generation_match == 0:
+                    raise PreconditionFailed("Object already exists")
+                bucket.contents[name] = data
+
+            def download_as_bytes(self):
+                return bucket.contents[name]
+        return Blob()
+
+
+def archive_store():
+    store = storage.Store.__new__(storage.Store)
+    store.bucket = FakeBucket()
+    return store
+
+
+def test_replayed_archive_is_idempotent_and_changed_file_keeps_original():
+    store = archive_store()
+    original = b"original-file-bytes"
+    first = store.archive("raw/activity-123", original)
+    replay = store.archive("raw/activity-123", original)
+    changed = store.archive("raw/activity-123", b"updated-file-bytes")
+    assert first == replay
+    assert first["object"] != changed["object"]
+    assert len(store.bucket.contents) == 2
+    assert store.bucket.contents[first["object"]] == original
+    assert all(upload["precondition"] == 0 for upload in store.bucket.uploads)
+    assert all(upload["checksum"] != "none" for upload in store.bucket.uploads)
+
+
+def test_archived_json_roundtrips_and_rejects_artifact_in_another_bucket():
+    store = archive_store()
+    payload = {"records": [{"heart_rate": 135}], "note": "økten"}
+    artifact = store.archive_json("parsed/123", payload)
+    assert store.read_json(artifact) == payload
+    assert store.archive_json("parsed/123", payload) == artifact
+    with pytest.raises(ValueError, match="outside"):
+        store.read_json({**artifact, "bucket": "other-private-bucket"})
+
+
+class FakeDB:
+    def __init__(self):
+        self.documents = {}
+
+    def collection(self, name):
+        database = self
+        class Collection:
+            def document(self, doc_id):
+                class Reference:
+                    key = (name, doc_id)
+                    def get(self, transaction=None):
+                        value = database.documents.get(self.key)
+                        return SimpleNamespace(to_dict=lambda: copy.deepcopy(value), exists=value is not None)
+                return Reference()
+        return Collection()
+
+    def transaction(self):
+        database = self
+        class Transaction:
+            def set(self, reference, updates, *, merge):
+                before = database.documents.get(reference.key, {}) if merge else {}
+                database.documents[reference.key] = {**before, **copy.deepcopy(updates)}
+        return Transaction()
+
+
+def test_unexpired_lease_blocks_another_worker_and_old_owner_cannot_release_new_lease(monkeypatch):
+    # The fake decorator executes the transaction body. Google provides actual
+    # conflict retries; this test covers our ownership/expiration decisions.
+    monkeypatch.setattr(storage.firestore, "transactional", lambda function: function)
+    store = storage.Store.__new__(storage.Store)
+    store.db = FakeDB()
+    current = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    monkeypatch.setattr(storage, "utcnow", lambda: current)
+    assert store.acquire_lease("worker-a", seconds=60) is True
+    assert store.acquire_lease("worker-b", seconds=60) is False
+    store.release_lease("worker-b", {"last_success_at": current})
+    assert store.db.documents[("sync_state", "intervals")]["lease_owner"] == "worker-a"
+    assert "last_success_at" not in store.db.documents[("sync_state", "intervals")]
+    current += timedelta(seconds=61)
+    assert store.acquire_lease("worker-b", seconds=60) is True
+    store.release_lease("worker-a", {"last_success_at": current})
+    assert store.db.documents[("sync_state", "intervals")]["lease_owner"] == "worker-b"
+    store.release_lease("worker-b", {"last_success_at": current})
+    state = store.db.documents[("sync_state", "intervals")]
+    assert state["lease_owner"] is None
+    assert state["last_success_at"] == current
