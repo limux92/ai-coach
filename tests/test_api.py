@@ -5,9 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import logging
-import sys
 from datetime import datetime, timedelta, timezone
-from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -230,7 +228,7 @@ def test_sync_exception_does_not_leak_secret_or_payload_in_response_or_logs(api,
     client, _ = api
     def fail(*args, **kwargs):
         raise RuntimeError("test-secret-value private-lactate-note")
-    monkeypatch.setitem(sys.modules, "ai_coach.sync", SimpleNamespace(run_sync=fail))
+    monkeypatch.setattr(main, "run_sync", fail)
     with caplog.at_level(logging.ERROR, logger="ai_coach"):
         response = client.post("/internal/sync", json={"backfill": False})
     assert response.status_code == 503
@@ -245,7 +243,7 @@ def test_partial_sync_signals_retry_and_passes_backfill_choice(api, monkeypatch)
     def partial(store, settings, *, backfill):
         calls.append((store, backfill))
         return {"status": "partial", "retry": True}
-    monkeypatch.setitem(sys.modules, "ai_coach.sync", SimpleNamespace(run_sync=partial))
+    monkeypatch.setattr(main, "run_sync", partial)
     response = client.post("/internal/sync", json={"backfill": False})
     assert response.status_code == 503
     assert calls == [(memory, False)]
@@ -321,3 +319,19 @@ def test_status_reports_missing_and_configured_key_without_exposing_it(api, monk
     response = client.get("/v1/status")
     assert response.json()["source_connection"] == "configured"
     assert "synthetic-private-key" not in response.text
+
+
+# Drafted by local Qwen, reviewed against the actual fixture and byte limit.
+@pytest.mark.parametrize("text", ["a" * 210000, "😊" * 40000])
+def test_large_targets_rejects(api, text):
+    client, memory = api
+    response = client.post("/v1/planned-workouts", json=plan_body(targets={"text": text}))
+    assert response.status_code == 422
+    assert memory.documents == {}
+
+
+def test_small_valid_targets_accepts(api):
+    client, memory = api
+    response = client.post("/v1/planned-workouts", json=plan_body(targets={"effort": "moderate"}))
+    assert response.status_code == 201
+    assert len(memory.documents) == 1

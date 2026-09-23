@@ -89,8 +89,7 @@ class DashboardHeaders:
     """Security headers also cover authorization, routing and validation failures."""
     def __init__(self, app, settings):
         self.app = app
-        issuer = urlsplit(settings.oauth_issuer)
-        auth_origin = f"{issuer.scheme}://{issuer.netloc}"
+        auth_origin = f"https://{settings.firebase_project_id}.firebaseapp.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com"
         self.headers = {
             "cache-control": "no-store",
             "pragma": "no-cache",
@@ -99,9 +98,9 @@ class DashboardHeaders:
             "x-frame-options": "DENY",
             "permissions-policy": "camera=(), microphone=(), geolocation=()",
             "content-security-policy": (
-                "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-                "img-src 'self' data:; font-src 'self'; "
-                f"connect-src 'self' {auth_origin}; frame-src {auth_origin}; "
+                "default-src 'none'; script-src 'self' https://www.gstatic.com https://apis.google.com; style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data: https://www.gstatic.com; font-src 'self'; "
+                f"connect-src 'self' {auth_origin}; frame-src 'self' {auth_origin}; "
                 f"form-action 'self' {auth_origin}; "
                 "worker-src 'self' blob:; base-uri 'self'; object-src 'none'; frame-ancestors 'none'"
             ),
@@ -118,20 +117,16 @@ class DashboardHeaders:
 
 
 def dashboard_routes(settings, backend, verifier, static_dir=None):
-    origin = settings.public_url.removesuffix("/mcp")
     root = Path(static_dir or os.environ.get("DASHBOARD_STATIC_DIR") or
                 Path(__file__).resolve().parents[2] / "static" / "dashboard").resolve()
 
     async def config(request):
         return JSONResponse({
-            "domain": urlsplit(settings.oauth_issuer).netloc,
-            "clientId": settings.dashboard_client_id,
-            "audience": settings.public_url,
-            "scope": "openid profile email coach:read offline_access",
-            "redirectUri": origin + "/dashboard/",
-            "logoutUri": origin + "/dashboard/",
+            "apiKey": settings.firebase_api_key,
+            "authDomain": f"{settings.firebase_project_id}.firebaseapp.com",
+            "projectId": settings.firebase_project_id,
             "timezone": "Europe/Oslo",
-            "configured": bool(settings.dashboard_client_id),
+            "configured": bool(settings.firebase_project_id),
         })
 
     async def read(path, params=None):

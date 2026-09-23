@@ -149,37 +149,14 @@ those are verified during provisioning.
 
 ## MCP and dashboard deployment
 
-`deploy_chat.py` deploys a separate OAuth-protected adapter. Configure its own
-project, project number, backend URL and public resource audience before use.
-Provider setup helpers likewise need your own tenant and resource configuration.
-Never deploy using identifiers copied from another person's installation.
+Use the [Firebase authentication guide](../docs/FIREBASE_AUTH.md). Current setup uses
+`configure_firebase.py`, `provision_auth_store.py`, `bind_firebase_owner.py`, and
+`deploy_chat.py --firebase-config .local/firebase-auth.json`.
 
-The OAuth config file must contain exactly `oauth_issuer`, `oauth_jwks_url` and
-`owner_subject`. Use the immutable subject established by a verified owner login.
-Keep this account configuration in ignored local storage; do not include tokens
-or client secrets.
-
-```sh
-python3 infra/deploy_chat.py --oauth-config .local/chat-oauth.json --check-only
-python3 infra/deploy_chat.py --oauth-config .local/chat-oauth.json
-```
-
-The helper checks provider metadata and private backend IAM, deploys privately,
-then verifies discovery and missing/invalid-token denial before publication.
-A failed final probe removes public adapter access. The data backend remains
-private. These deployment probes do not prove a successful owner login, tool call
-or token renewal; verify those separately in the intended MCP client.
-
-For the dashboard, configure a dedicated first-party SPA using
-`configure_dashboard.py`, build its frontend, and pass its nonsecret receipt with
-`--dashboard-config .local/dashboard-auth0.json`. The helper validates the exact
-tenant, audience and callback and requires compiled dashboard HTML. Later
-redeploys without this flag preserve the existing dashboard client ID.
-
-Use an exact callback, PKCE, owner-bound API access and rotating refresh tokens.
-The dashboard and hosted MCP client are separate OAuth applications. See
-[connection setup](../docs/CHAT_CONNECTION.md) and
-[dashboard setup](../docs/DASHBOARD.md).
+The gateway reads training data only through private Cloud Run IAM. A conditional
+`roles/datastore.user` grant permits OAuth session storage only in `ai-coach-auth`;
+its client rules deny direct browser access. The training database is unchanged.
+Only the Firebase setup helpers are supported.
 
 ## Manual date-range sync
 

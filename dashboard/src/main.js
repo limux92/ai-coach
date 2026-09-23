@@ -1,4 +1,5 @@
-import { createAuth0Client } from '@auth0/auth0-spa-js';
+import { initializeApp } from 'firebase/app';
+import { getAuth, setPersistence, browserSessionPersistence, signInWithPopup, GoogleAuthProvider, signOut, getIdToken, onAuthStateChanged } from 'firebase/auth';
 import './style.css';
 import { isNumber, addDays, monthStart, monthEnd, shiftMonth, monday, calendarDays, localToday, category, dayOf, loadOf, totals, calendarPeriodRows, zoneGroups, weekSeries, duration, km, formatDate, number, escapeHTML as esc } from './data.js';
 
@@ -119,7 +120,12 @@ function calendarCard(row, planned) {
 
 async function api(path, signal) {
   let token;
-  try { token = await auth.getTokenSilently(); } catch { const e = new Error('Your sign-in has expired. Sign in again to reconnect.'); e.auth = true; throw e; }
+  try {
+    if (!auth.currentUser) throw new Error();
+    token = await getIdToken(auth.currentUser);
+  } catch {
+    const e = new Error('Your sign-in has expired. Sign in again to reconnect.'); e.auth = true; throw e;
+  }
   const response = await fetch(`/dashboard/api${path}`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store', signal });
   if (!response.ok) {
     const messages = { 401: 'Your sign-in has expired. Sign in again to reconnect.', 403: 'This account does not have access to this private training space.', 409: 'This workout’s summary is available, but detailed samples are not available. Its original FIT file is preserved.', 429: 'The service is busy. Please try again shortly.', 502: 'The training database is temporarily unavailable. Your saved data is safe.' };
@@ -234,14 +240,14 @@ function closeDrawer() { state.drawer = null; renderDrawer(); focusBeforeDrawer?
 
 async function signIn() {
   if (!auth) return;
-  try { await auth.loginWithRedirect({ appState: { returnTo: '/dashboard/' } }); }
+  try { await signInWithPopup(auth, new GoogleAuthProvider()); }
   catch { loginScreen('Couldn’t open secure sign-in. Please try again.'); }
 }
 document.addEventListener('click', event => {
   const target = event.target.closest('button, [data-action]'); if (!target) return;
   const action = target.dataset.action;
   if (action === 'login') return void signIn();
-  if (action === 'logout') { state.workouts = []; state.plans = []; closeDrawer(); return void auth.logout({ logoutParams: { returnTo: config.logoutUri || `${location.origin}/dashboard/` } }); }
+  if (action === 'logout') { clearSession(); return void signOut(auth); }
   if (action === 'close-drawer') return closeDrawer();
   if (action === 'more-samples' && state.drawer) return void loadSamples(state.drawer, state.drawer.nextOffset);
   if (target.dataset.sampleField && state.drawer) { state.drawer.sampleField = target.dataset.sampleField; renderDrawer(); return; }
@@ -272,21 +278,37 @@ document.addEventListener('keydown', event => {
   }
 });
 
+function clearSession() {
+  ++state.request;
+  activeController?.abort();
+  state.workouts = []; state.plans = []; state.status = null;
+  state.drawer = null; state.error = null; state.loading = false;
+  drawerRoot.innerHTML = '';
+}
+
 async function boot() {
   try {
     const response = await fetch('/dashboard/config', { cache: 'no-store' }); if (!response.ok) throw new Error('config');
     config = await response.json();
-    if (!config.domain || !config.clientId || !config.audience) throw new Error('config');
+    if (!config.projectId || !config.apiKey) throw new Error('config');
     config.timezone ||= 'Europe/Oslo'; state.today = localToday(config.timezone); state.month = monthStart(state.today); state.week = monday(state.today);
-    auth = await createAuth0Client({ domain: config.domain, clientId: config.clientId, cacheLocation: 'memory', useRefreshTokens: true, useRefreshTokensFallback: true, authorizationParams: { audience: config.audience, scope: config.scope || 'openid profile email offline_access coach:read', redirect_uri: config.redirectUri || `${location.origin}/dashboard/` } });
-    const params = new URLSearchParams(location.search);
-    if (params.has('code') && params.has('state')) { await auth.handleRedirectCallback(); history.replaceState({}, '', '/dashboard/'); }
-    if (params.has('error')) { history.replaceState({}, '', '/dashboard/'); loginScreen('Sign-in was not completed. You can try again below.'); return; }
-    if (!(await auth.isAuthenticated())) { loginScreen(); return; }
-    await loadData();
+
+    const app = initializeApp(config);
+    auth = getAuth(app);
+
+    await setPersistence(auth, browserSessionPersistence);
+    if (location.pathname === '/dashboard/connect') {
+      const { connectChat } = await import('./connect.js');
+      return await connectChat(root, auth);
+    }
+    onAuthStateChanged(auth, async user => {
+      clearSession();
+      if (user) await loadData();
+      else loginScreen();
+    });
+
   } catch (error) {
-    if (auth) { history.replaceState({}, '', '/dashboard/'); loginScreen('Your sign-in could not be completed. Please try signing in again.'); }
-    else root.innerHTML = `<main id="main" class="setup-state">${brand}<h1>Your training space is almost ready.</h1><p>The dashboard connection is not available yet.<br>Please try reloading in a moment.</p><button class="button primary" id="reload-button">Reload dashboard</button></main>`;
+    root.innerHTML = `<main id="main" class="setup-state">${brand}<h1>Your training space is almost ready.</h1><p>The dashboard connection is not available yet.<br>Please try reloading in a moment.</p><button class="button primary" id="reload-button">Reload dashboard</button></main>`;
     document.querySelector('#reload-button')?.addEventListener('click', () => location.reload());
   }
 }

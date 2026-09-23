@@ -1,20 +1,14 @@
 #!/usr/bin/env python3
-"""Deploy the owner-authorized MCP resource server; never expose the data backend.
+"""Deploy the Firebase-backed OAuth gateway; preserve private backend IAM.
 
-Requires a real, configured OAuth issuer/JWKS/owner subject. This script cannot
-create an OAuth provider, establish ownership from a subject string, complete
-consent, or register the chat connection. Public deployment is not a successful
-owner login: its result deliberately leaves ready_for_chat false.
-
-Cloud Run custom authentication header and scoped public IAM documentation:
-https://docs.cloud.google.com/run/docs/authenticating/service-to-service
-https://docs.cloud.google.com/run/docs/authenticating/public
+Requires a verified Firebase owner UID and an isolated OAuth state database.
+Static probes do not establish a successful interactive owner login.
 """
 from __future__ import annotations
 
 import argparse
 import base64
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 import json
 from pathlib import Path
 import re
@@ -95,80 +89,20 @@ def json_response(response, label):
 def load_settings(path: Path) -> Settings:
     try:
         if path.stat().st_size > 16_384:
-            raise DeploymentError("OAuth config exceeds size limit")
+            raise DeploymentError("Firebase config exceeds size limit")
         config = json.loads(path.read_text())
     except (OSError, ValueError, UnicodeError):
-        raise DeploymentError("Read a valid non-secret OAuth configuration file") from None
-    expected = {"oauth_issuer", "oauth_jwks_url", "owner_subject"}
+        raise DeploymentError("Read a valid private Firebase configuration receipt") from None
+    expected = {"firebase_project_id", "firebase_api_key", "owner_subject", "oauth_redirect_uris"}
     if not isinstance(config, dict) or set(config) != expected:
-        raise DeploymentError("OAuth config requires exactly oauth_issuer, oauth_jwks_url and owner_subject")
-    for key, value in config.items():
-        if (not isinstance(value, str) or not value.strip() or value != value.strip()
-                or any(char.isspace() for char in value)
-                or any(marker in value.casefold() for marker in ("your-", "placeholder", "changeme", "exact-immutable", "<", ">", "${"))):
-            raise DeploymentError("OAuth configuration must contain real issuer, JWKS and owner subject values")
-    for key in ("oauth_issuer", "oauth_jwks_url"):
-        hostname = urlsplit(config[key]).hostname or ""
-        if (hostname in {"localhost", "example.com", "example.org", "example.net"}
-                or hostname.endswith((".localhost", ".invalid", ".example", ".example.com", ".example.org", ".example.net"))):
-            raise DeploymentError("OAuth configuration must use the real provider hostname")
+        raise DeploymentError("Firebase config requires exactly firebase_project_id, firebase_api_key, owner_subject and oauth_redirect_uris")
+    if config["firebase_project_id"] != PROJECT:
+        raise DeploymentError("Firebase must use the existing AI Coach project")
     try:
         return Settings(backend_url=BACKEND_URL, backend_allowed_host=urlsplit(BACKEND_URL).hostname,
                         public_url=PUBLIC_URL, **config)
     except (TypeError, ValueError):
-        raise DeploymentError("OAuth configuration does not satisfy adapter Settings") from None
-
-
-
-def load_dashboard_config(path: Path, settings: Settings) -> Settings:
-    """Read only our dedicated SPA's nonsecret deployment receipt."""
-    try:
-        if path.stat().st_size > 16_384:
-            raise DeploymentError("Dashboard configuration exceeds size limit")
-        config = json.loads(path.read_text())
-    except (OSError, ValueError, UnicodeError):
-        raise DeploymentError("Read a valid non-secret dashboard configuration file") from None
-    expected = {"version", "tenant", "audience", "client_id", "grant_id", "connection_id", "callback"}
-    if not isinstance(config, dict) or set(config) != expected:
-        raise DeploymentError("Dashboard config requires exactly version, tenant, audience, client_id, grant_id, connection_id and callback")
-    if (type(config["version"]) is not int or config["version"] != 1
-            or config["tenant"] != urlsplit(settings.oauth_issuer).netloc
-            or config["audience"] != settings.public_url
-            or config["callback"] != settings.public_url.removesuffix("/mcp") + "/dashboard/"):
-        raise DeploymentError("Dashboard configuration must match this OAuth tenant, API audience and callback")
-    for key in ("client_id", "grant_id", "connection_id"):
-        value = config[key]
-        if not isinstance(value, str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,200}", value):
-            raise DeploymentError("Dashboard configuration contains an invalid public identifier")
-    return replace(settings, dashboard_client_id=config["client_id"])
-
-
-def preserve_dashboard_config(settings: Settings, existing) -> Settings:
-    """A later MCP-only deployment must not accidentally remove dashboard login."""
-    if settings.dashboard_client_id or existing is None:
-        return settings
-    containers = existing.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
-    if not containers:
-        return settings
-    entries = [entry for entry in containers[0].get("env", []) if entry.get("name") == "DASHBOARD_CLIENT_ID"]
-    if not entries:
-        return settings
-    if len(entries) != 1 or set(entries[0]) != {"name", "value"}:
-        raise DeploymentError("Existing dashboard client configuration must be a single non-secret environment value")
-    try:
-        return replace(settings, dashboard_client_id=entries[0]["value"])
-    except (ValueError, TypeError):
-        raise DeploymentError("Existing dashboard client configuration is invalid") from None
-
-
-def _same_origin_url(value, issuer):
-    if not isinstance(value, str):
-        return False
-    try:
-        https_url(value, "Provider endpoint")
-    except (ValueError, TypeError):
-        return False
-    return urlsplit(value).netloc == urlsplit(issuer).netloc
+        raise DeploymentError("Firebase configuration does not satisfy adapter Settings") from None
 
 
 def _public_signing_key(key):
@@ -198,33 +132,37 @@ def _public_signing_key(key):
 
 
 def verify_provider(settings: Settings, http=request):
-    issuer = urlsplit(settings.oauth_issuer)
-    origin = f"https://{issuer.netloc}"
-    issuer_path = issuer.path.rstrip("/")
-    oauth_url = origin + "/.well-known/oauth-authorization-server" + issuer_path
-    oidc_url = settings.oauth_issuer.rstrip("/") + "/.well-known/openid-configuration"
-    response = http(oauth_url)
-    if response.status == 404:
-        response = http(oidc_url)
-    metadata = json_response(response, "OAuth provider discovery")
-    if metadata.get("issuer") != settings.oauth_issuer:
-        raise DeploymentError("Provider discovery issuer does not match configuration")
-    if metadata.get("jwks_uri") != settings.oauth_jwks_url:
-        raise DeploymentError("Provider discovery JWKS URL does not match configuration")
-    if any(not _same_origin_url(metadata.get(key), settings.oauth_issuer)
-           for key in ("authorization_endpoint", "token_endpoint")):
-        raise DeploymentError("Provider authorization/token endpoints must use its HTTPS origin")
-    if ("code" not in metadata.get("response_types_supported", [])
-            or "authorization_code" not in metadata.get("grant_types_supported", [])
-            or "S256" not in metadata.get("code_challenge_methods_supported", [])):
-        raise DeploymentError("Provider discovery must support authorization code and PKCE S256")
-    jwks = json_response(http(settings.oauth_jwks_url), "OAuth provider JWKS")
+    jwks = json_response(http("https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com"), "Firebase public keys")
     keys = jwks.get("keys")
-    if not isinstance(keys, list) or not 1 <= len(keys) <= 32 or not any(_public_signing_key(key) for key in keys):
-        raise DeploymentError("Provider must publish supported public RS256 or ES256 signing keys")
-    kids = [key.get("kid") for key in keys if isinstance(key, dict) and key.get("kid") is not None]
+    if not isinstance(keys, list) or not 1 <= len(keys) <= 32 or not any(_public_signing_key(key) and key.get("kty") == "RSA" for key in keys):
+        raise DeploymentError("Firebase must publish supported public RS256 signing keys")
+    kids = [key.get("kid") for key in keys if isinstance(key, dict)]
     if len(set(kids)) != len(kids):
-        raise DeploymentError("Provider JWKS contains ambiguous key identifiers")
+        raise DeploymentError("Firebase keys contain ambiguous key identifiers")
+
+
+def auth_condition():
+    return f'resource.name=="projects/{PROJECT}/databases/ai-coach-auth"'
+
+
+def verify_firebase(cloud, settings):
+    base = "https://identitytoolkit.googleapis.com/admin/v2/projects/" + PROJECT
+    provider = cloud.rest("GET", base + "/defaultSupportedIdpConfigs/google.com")
+    if not provider.get("enabled"):
+        raise DeploymentError("Firebase Google sign-in is not enabled")
+    config = cloud.rest("GET", base + "/config")
+    if urlsplit(settings.public_url).hostname not in config.get("authorizedDomains", []):
+        raise DeploymentError("The gateway must be an authorized Firebase domain")
+    result = cloud.rest("POST", "https://identitytoolkit.googleapis.com/v1/projects/" + PROJECT + "/accounts:lookup",
+                        {"localId": [settings.owner_subject]})
+    users = result.get("users", [])
+    if (len(users) != 1 or users[0].get("localId") != settings.owner_subject or users[0].get("disabled")
+            or users[0].get("emailVerified") is not True
+            or not any(p.get("providerId") == "google.com" for p in users[0].get("providerUserInfo", []))):
+        raise DeploymentError("Firebase owner must be an enabled, verified Google user")
+    db = cloud.json("firestore", "databases", "describe", "--database=ai-coach-auth")
+    if db.get("type") != "FIRESTORE_NATIVE" or db.get("locationId") != REGION:
+        raise DeploymentError("OAuth state database must be Native mode in the configured region")
 
 
 def policy(cloud, service):
@@ -258,6 +196,7 @@ def preflight(cloud, settings, source, http=request):
     if not (source / "Dockerfile").is_file() or not (source / "src" / "ai_coach_mcp" / "app.py").is_file():
         raise DeploymentError("MCP adapter source directory is incomplete")
     verify_provider(settings, http)
+    verify_firebase(cloud, settings)
     project = cloud.json("projects", "describe", PROJECT)
     if str((project or {}).get("projectNumber")) != PROJECT_NUMBER:
         raise DeploymentError("Unexpected AI Coach project number")
@@ -266,8 +205,10 @@ def preflight(cloud, settings, source, http=request):
         raise DeploymentError("Existing AI Coach build service account is missing")
     member = f"serviceAccount:{RUNTIME}"
     project_policy = cloud.json("projects", "get-iam-policy", PROJECT)
-    if any(member in binding.get("members", []) for binding in project_policy.get("bindings", [])):
-        raise DeploymentError("Chat runtime must not have project-wide IAM grants")
+    grants = [binding for binding in project_policy.get("bindings", []) if member in binding.get("members", [])]
+    if (len(grants) != 1 or grants[0].get("role") != "roles/datastore.user"
+            or grants[0].get("condition", {}).get("expression") != auth_condition()):
+        raise DeploymentError("Chat runtime requires only a database-restricted OAuth state grant")
 
 
 def make_private(cloud):
@@ -294,6 +235,17 @@ def probe_adapter(settings, *, transport_token=None, http=request):
         raise DeploymentError("Protected-resource discovery does not match the configured resource and issuer")
     if discovery.get("scopes_supported") is not None and "coach:read" not in discovery["scopes_supported"]:
         raise DeploymentError("Protected-resource discovery omits the required read scope")
+    authorization = json_response(http(origin + "/.well-known/oauth-authorization-server", headers=headers), "OAuth discovery")
+    if (authorization.get("issuer") != settings.oauth_issuer
+            or authorization.get("authorization_endpoint") != origin + "/authorize"
+            or authorization.get("token_endpoint") != origin + "/token"
+            or authorization.get("code_challenge_methods_supported") != ["S256"]):
+        raise DeploymentError("OAuth authorization code discovery is invalid")
+    dashboard = json_response(http(origin + "/dashboard/config", headers=headers), "Dashboard Firebase configuration")
+    if dashboard.get("projectId") != settings.firebase_project_id or dashboard.get("apiKey") != settings.firebase_api_key:
+        raise DeploymentError("Dashboard Firebase configuration does not match deployment")
+    if http(origin + "/dashboard/api/status", headers=headers).status != 401:
+        raise DeploymentError("Dashboard must deny anonymous data access")
     for authorization in (None, "Bearer invalid-deployment-probe"):
         mcp_headers = {**headers, "Accept": "application/json, text/event-stream"}
         if authorization:
@@ -310,8 +262,7 @@ def deploy(cloud, settings, source, *, http=request, check_only=False):
     source = source.resolve()
     preflight(cloud, settings, source, http)
     existing = cloud.json("run", "services", "describe", SERVICE, f"--region={REGION}", allow_missing=True)
-    settings = preserve_dashboard_config(settings, existing)
-    if settings.dashboard_client_id and not (source / "static" / "dashboard" / "index.html").is_file():
+    if not (source / "static" / "dashboard" / "index.html").is_file():
         raise DeploymentError("Build the dashboard before deploying its configured login")
     if check_only:
         return {"project": PROJECT, "preflight_verified": True, "deployed": False,
@@ -325,10 +276,9 @@ def deploy(cloud, settings, source, *, http=request, check_only=False):
     if existing is not None:
         make_private(cloud)
     env = {"BACKEND_URL": settings.backend_url, "BACKEND_ALLOWED_HOST": settings.backend_allowed_host,
-           "MCP_PUBLIC_URL": settings.public_url, "OAUTH_ISSUER": settings.oauth_issuer,
-           "OAUTH_JWKS_URL": settings.oauth_jwks_url, "OAUTH_OWNER_SUBJECT": settings.owner_subject}
-    if settings.dashboard_client_id:
-        env["DASHBOARD_CLIENT_ID"] = settings.dashboard_client_id
+           "MCP_PUBLIC_URL": settings.public_url, "FIREBASE_PROJECT_ID": settings.firebase_project_id,
+           "FIREBASE_API_KEY": settings.firebase_api_key, "FIREBASE_OWNER_UID": settings.owner_subject,
+           "OAUTH_REDIRECT_URIS": json.dumps(settings.oauth_redirect_uris), "AUTH_FIRESTORE_DATABASE": settings.auth_database}
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as temporary:
         json.dump(env, temporary)
         temporary.flush()
@@ -364,22 +314,19 @@ def deploy(cloud, settings, source, *, http=request, check_only=False):
             "deployed": True, "provider_metadata_verified": True, "private_backend_verified": True,
             "oauth_denial_verified": True, "protected_resource_metadata_verified": True,
             "owner_login_verified": False, "ready_for_chat": False,
-            "remaining": ["Verify a real owner OAuth login: exact issuer, owner subject, /mcp audience and coach:read scope",
+            "remaining": ["Verify Firebase owner consent, OAuth PKCE exchange and refresh rotation",
                           "Verify a valid different-user token is denied", "Register and verify the chosen chat connection"]}
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--oauth-config", required=True, type=Path,
-                        help="Non-secret JSON containing actual oauth_issuer, oauth_jwks_url and owner_subject")
-    parser.add_argument("--dashboard-config", type=Path, help="Optional non-secret receipt from configure_dashboard.py; otherwise preserve existing dashboard login")
+    parser.add_argument("--firebase-config", required=True, type=Path,
+                        help="Private receipt from bind_firebase_owner.py")
     parser.add_argument("--source", type=Path, default=ROOT / "adapters" / "mcp")
     parser.add_argument("--check-only", action="store_true", help="Read-only provider, cloud and private-backend checks")
     args = parser.parse_args(argv)
     try:
-        settings = load_settings(args.oauth_config)
-        if args.dashboard_config is not None:
-            settings = load_dashboard_config(args.dashboard_config, settings)
+        settings = load_settings(args.firebase_config)
         result = deploy(Cloud(PROJECT), settings, args.source, check_only=args.check_only)
     except Exception as exc:
         # Cloud errors can include provider bodies; print only our curated errors.

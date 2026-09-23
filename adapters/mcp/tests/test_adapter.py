@@ -2,10 +2,12 @@ import json
 import time
 
 import httpx
-import jwt
 import pytest
-from cryptography.hazmat.primitives.asymmetric import rsa
 from starlette.testclient import TestClient
+import asyncio
+import jwt
+from cryptography.hazmat.primitives.asymmetric import rsa
+from conftest import MemoryOAuthStore
 
 from ai_coach_mcp.app import DEFAULT_SAMPLE_FIELDS, create_app
 from ai_coach_mcp.config import Settings
@@ -17,9 +19,10 @@ def settings():
         backend_url="https://ai-coach-data-123.europe-north1.run.app",
         backend_allowed_host="ai-coach-data-123.europe-north1.run.app",
         public_url="https://ai-coach-mcp-123.europe-north1.run.app/mcp",
-        oauth_issuer="https://owner.auth0.com/",
-        oauth_jwks_url="https://owner.auth0.com/.well-known/jwks.json",
-        owner_subject="owner-subject")
+        firebase_project_id="test-project",
+        firebase_api_key="fake-api-key",
+        owner_subject="owner-subject",
+        oauth_redirect_uris=("https://chatgpt.com/connector_platform_oauth_redirect",))
 
 
 @pytest.fixture
@@ -35,29 +38,33 @@ class Tokens:
         return "private-backend-id-token"
 
 
-def token(key, settings, **changes):
-    claims = {"iss": settings.oauth_issuer, "sub": settings.owner_subject,
-        "aud": settings.public_url, "iat": int(time.time()), "exp": int(time.time()) + 300,
-        "scope": "coach:read", "azp": "chat-client"}
+def firebase_token(key, settings, **changes):
+    claims = {"iss": settings.firebase_issuer, "sub": settings.owner_subject,
+              "aud": settings.firebase_project_id, "iat": int(time.time()),
+              "exp": int(time.time()) + 300, "auth_time": int(time.time()) - 30,
+              "email_verified": True, "firebase": {"sign_in_provider": "google.com"}}
     claims.update(changes)
     return jwt.encode(claims, key, algorithm="RS256", headers={"kid": "test-key"})
 
 
+def token(key, settings):
+    return "A" * 43
+
+
 def setup(settings, key, backend_handler):
-    jwk = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(key.public_key()))
-    jwk.update({"kid": "test-key", "alg": "RS256", "use": "sig"})
-    auth_calls = []
-
-    def jwks(request):
-        auth_calls.append(request)
-        assert str(request.url) == settings.oauth_jwks_url
-        assert "authorization" not in request.headers
-        return httpx.Response(200, json={"keys": [jwk]})
-
     tokens = Tokens()
+    store = MemoryOAuthStore()
+    async def seed():
+        await store.put("grants", "grant", {"expires_at": time.time() + 600, "revoked": False})
+        await store.put("access", token(key, settings), {"client_id": "test-client", "subject": settings.owner_subject,
+            "resource": settings.public_url, "scopes": [settings.read_scope], "grant": "grant", "expires_at": int(time.time()) + 300})
+    asyncio.run(seed())
+    jwk = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(key.public_key()))
+    jwk.update(kid="test-key", alg="RS256", use="sig")
     app = create_app(settings, backend_transport=httpx.MockTransport(backend_handler),
-        jwks_transport=httpx.MockTransport(jwks), token_provider=tokens)
-    return app, tokens, auth_calls
+        jwks_transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"keys": [jwk]})),
+        token_provider=tokens, oauth_store=store)
+    return app, tokens, []
 
 
 def headers(bearer=None):
@@ -143,24 +150,22 @@ def test_tools_forward_only_private_get_and_preserve_pagination(settings, key, n
     assert len(calls) == tokens.calls == 1
 
 
-@pytest.mark.parametrize("changes", [
-    {"sub": "another-user"}, {"aud": "https://other.example/mcp"}, {"iss": "https://evil.example/"},
-    {"scope": "coach:write"}, {"exp": 1}, {"nbf": 4_000_000_000}, {"azp": None},
-])
-def test_oauth_rejects_wrong_owner_audience_issuer_scope_or_time(settings, key, changes):
-    app, tokens, _ = setup(settings, key, lambda request: pytest.fail("Unauthorized backend access"))
-    with TestClient(app, base_url=settings.public_url.removesuffix("/mcp")) as client:
-        result = rpc(client, token(key, settings, **changes))
-        assert result.status_code == 401
+@pytest.mark.parametrize("change", [{"subject": "another-user"}, {"resource": "https://wrong.example/mcp"},
+    {"expires_at": 1}, {"scopes": ["coach:write"]}])
+def test_mcp_rejects_invalid_stored_grants(settings, key, change):
+    from ai_coach_mcp.oauth_store import digest
+    app, tokens, _ = setup(settings, key, lambda r: pytest.fail("Unauthorized backend access"))
+    app.state.oauth.store.rows["access", digest(token(key, settings))].update(change)
+    with TestClient(app, base_url=settings.oauth_issuer) as client:
+        assert rpc(client, token(key, settings)).status_code == 401
     assert tokens.calls == 0
 
 
-def test_oauth_rejects_bad_signature_and_unsigned_token(settings, key):
-    app, tokens, _ = setup(settings, key, lambda request: pytest.fail("Unauthorized backend access"))
-    other_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    with TestClient(app, base_url=settings.public_url.removesuffix("/mcp")) as client:
-        assert rpc(client, token(other_key, settings)).status_code == 401
-        assert rpc(client, "not-a-token").status_code == 401
+def test_mcp_rejects_firebase_id_tokens_and_forged_tokens(settings, key):
+    app, tokens, _ = setup(settings, key, lambda r: pytest.fail("Unauthorized backend access"))
+    with TestClient(app, base_url=settings.oauth_issuer) as client:
+        for value in ("not-a-token", "B" * 43, firebase_token(key, settings), '{"sub":"owner-subject"}'):
+            assert rpc(client, value).status_code == 401
     assert tokens.calls == 0
 
 
@@ -241,7 +246,7 @@ def test_server_rejects_unlisted_host_and_origin(settings, key):
     {"backend_url": "https://other.run.app"},
     {"backend_url": "https://ai-coach-data-123.europe-north1.run.app/path"},
     {"backend_url": "https://name:password@ai-coach-data-123.europe-north1.run.app"},
-    {"oauth_jwks_url": "https://attacker.example/jwks"},
+    {"firebase_project_id": "INVALID_PROJECT_ID!"},  # uppercase/special chars invalid
     {"public_url": "http://localhost:8080/mcp"}, {"owner_subject": ""},
 ])
 def test_config_fails_closed(settings, change):

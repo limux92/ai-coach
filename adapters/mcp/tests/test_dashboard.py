@@ -9,7 +9,7 @@ from starlette.testclient import TestClient
 
 from ai_coach_mcp.backend import ALLOWED_ROUTES
 from ai_coach_mcp.config import Settings
-from test_adapter import key, settings, setup, token, rpc
+from test_adapter import key, settings, setup, firebase_token as token, token as mcp_token, rpc
 
 
 def client_for(app, settings):
@@ -31,25 +31,24 @@ def test_shell_and_config_are_public_but_contain_no_training_data(settings, key,
     outside.write_text("private-data")
     (static / "linked.html").symlink_to(outside)
     monkeypatch.setenv("DASHBOARD_STATIC_DIR", str(static))
-    settings = replace(settings, dashboard_client_id="public-client-123")
     app, tokens, _ = setup(settings, key, lambda request: pytest.fail("Public route accessed private backend"))
     with client_for(app, settings) as client:
         config = client.get("/dashboard/config")
         assert config.status_code == 200
         assert config.json() == {
-            "domain": "owner.auth0.com", "clientId": "public-client-123",
-            "audience": settings.public_url, "scope": "openid profile email coach:read offline_access",
-            "redirectUri": settings.public_url.removesuffix("/mcp") + "/dashboard/",
-            "logoutUri": settings.public_url.removesuffix("/mcp") + "/dashboard/",
-            "timezone": "Europe/Oslo", "configured": True}
+            "apiKey": "fake-api-key",
+            "authDomain": "test-project.firebaseapp.com",
+            "projectId": "test-project",
+            "timezone": "Europe/Oslo",
+            "configured": True}
         for path in ("/dashboard/", "/dashboard/calendar", "/dashboard/app.js"):
             response = client.get(path)
             assert response.status_code == 200
             assert "private-data" not in response.text
             assert response.headers["cache-control"] == "no-store"
             assert response.headers["referrer-policy"] == "no-referrer"
-            assert "script-src 'self';" in response.headers["content-security-policy"]
-            assert "https://owner.auth0.com" in response.headers["content-security-policy"]
+            assert "script-src 'self'" in response.headers["content-security-policy"]
+            assert "test-project.firebaseapp.com" in response.headers["content-security-policy"]
         for path in ("/dashboard/.env", "/dashboard/secret.py", "/dashboard/linked.html",
                      "/dashboard/assets/missing.js", "/dashboard/%2e%2e/private.html",
                      "/dashboard/%5cprivate.html"):
@@ -57,7 +56,7 @@ def test_shell_and_config_are_public_but_contain_no_training_data(settings, key,
             assert response.status_code != 200
             assert "private-data" not in response.text
         assert client.get("/dashboard", follow_redirects=False).headers["location"] == "/dashboard/"
-        assert rpc(client, token(key, settings)).status_code == 200
+        assert rpc(client, mcp_token(key, settings)).status_code == 200
     assert tokens.calls == 0
 
 
@@ -65,8 +64,8 @@ def test_missing_dashboard_client_does_not_disable_mcp(settings, key):
     app, tokens, _ = setup(settings, key, lambda request: pytest.fail("Unexpected backend access"))
     with client_for(app, settings) as client:
         config = client.get("/dashboard/config").json()
-        assert config["configured"] is False and config["clientId"] == ""
-        assert rpc(client, token(key, settings)).status_code == 200
+        assert config["configured"] is True
+        assert rpc(client, mcp_token(key, settings)).status_code == 200
     assert tokens.calls == 0
 
 
@@ -74,7 +73,7 @@ def test_missing_dashboard_client_does_not_disable_mcp(settings, key):
     "/workouts?oldest=2026-09-01&newest=2026-09-16", "/planned-workouts?oldest=2026-09-01&newest=2026-09-16",
     "/workouts/i-123", "/workouts/i-123/samples", "/not-a-route"])
 @pytest.mark.parametrize("claims", [None, {"sub": "another-person"}, {"aud": "other-api"},
-    {"scope": "openid"}, {"exp": 1}, {"iss": "https://attacker.example/"}])
+    {"email_verified": False}, {"exp": 1}, {"iss": "https://attacker.example/"}])
 def test_all_api_routes_reject_missing_or_invalid_owner_token(settings, key, path, claims):
     app, tokens, _ = setup(settings, key, lambda request: pytest.fail("Unauthorized backend access"))
     with client_for(app, settings) as client:
@@ -184,4 +183,4 @@ def test_backend_allowlist_has_only_specific_dashboard_routes():
 
 def test_dashboard_client_config_rejects_injection(settings):
     with pytest.raises(ValueError):
-        Settings(**{**settings.__dict__, "dashboard_client_id": "client\nsecret"})
+        Settings(**{**settings.__dict__, "firebase_api_key": "client\nsecret"})
