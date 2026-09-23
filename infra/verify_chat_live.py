@@ -13,7 +13,7 @@ import tempfile
 import httpx
 
 PROJECT = Path(__file__).resolve().parents[1]
-TOKEN_FILE = PROJECT / ".local/auth0-owner-login.json"
+TOKEN_FILE = PROJECT / ".local/firebase-chat-login.json"
 REPORT_FILE = PROJECT / ".local/verification/chat-live-verification.json"
 URL = "https://ai-coach-chat-600465847441.europe-north1.run.app/mcp"
 TOOLS = {

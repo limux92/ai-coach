@@ -13,9 +13,9 @@ sys.path.insert(0, str(ROOT / "infra"))
 import deploy_chat as deploy
 
 
-ISSUER = "https://owner-tenant.auth0.com/"
-JWKS = ISSUER + ".well-known/jwks.json"
-OWNER = "auth0|6f89c0123abc4567def89012"
+ISSUER = deploy.PUBLIC_URL.removesuffix("/mcp")
+JWKS = "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com"
+OWNER = "verified-firebase-owner"
 
 
 def response(status=200, body=None, headers=None):
@@ -25,12 +25,14 @@ def response(status=200, body=None, headers=None):
 @pytest.fixture
 def config_file(tmp_path):
     path = tmp_path / "oauth.json"
-    path.write_text(json.dumps({"oauth_issuer": ISSUER, "oauth_jwks_url": JWKS, "owner_subject": OWNER}))
+    path.write_text(json.dumps({"firebase_project_id": deploy.PROJECT, "firebase_api_key": "public-firebase-api-key", "owner_subject": OWNER, "oauth_redirect_uris": ["https://chatgpt.com/connector_platform_oauth_redirect"]}))
     return path
 
 
 @pytest.fixture
-def settings(config_file):
+def settings(config_file, monkeypatch):
+    original = Path.is_file
+    monkeypatch.setattr(Path, "is_file", lambda path: True if path == ROOT / "adapters/mcp/static/dashboard/index.html" else original(path))
     return deploy.load_settings(config_file)
 
 
@@ -44,12 +46,15 @@ class Cloud:
         self.chat_env = []
         self.backend_annotations = {}
         self.policies = {deploy.BACKEND_SERVICE: {"bindings": []}, deploy.SERVICE: {"bindings": []}}
-        self.project_policy = {"bindings": []}
+        self.project_policy = {"bindings": [{"role": "roles/datastore.user", "members": [f"serviceAccount:{deploy.RUNTIME}"], "condition": {"expression": deploy.auth_condition()}}]}
+        self.firebase_changes = {}
         self.environments = []
         self.builder_exists = True
 
     def json(self, *args, **kwargs):
         self.journal.append(("json", args, kwargs))
+        if args[:3] == ("firestore", "databases", "describe"):
+            return {"type": "FIRESTORE_NATIVE", "locationId": deploy.REGION}
         if args[:2] == ("projects", "describe"):
             return {"projectNumber": self.number}
         if args[:2] == ("projects", "get-iam-policy"):
@@ -64,6 +69,16 @@ class Cloud:
         if args[:3] == ("run", "services", "get-iam-policy"):
             return copy.deepcopy(self.policies[args[3]])
         raise AssertionError(f"Unexpected mocked read: {args[:3]}")
+
+    def rest(self, method, url, body=None):
+        self.journal.append(("rest", (url, method), {}))
+        if url.endswith("/defaultSupportedIdpConfigs/google.com"):
+            return {"enabled": True, **self.firebase_changes.get("provider", {})}
+        if url.endswith("/config"):
+            return {"authorizedDomains": [ISSUER.removeprefix("https://")], **self.firebase_changes.get("config", {})}
+        if url.endswith("/accounts:lookup"):
+            return {"users": [{"localId": OWNER, "emailVerified": True, "providerUserInfo": [{"providerId": "google.com"}], **self.firebase_changes.get("user", {})}]}
+        raise AssertionError("Unexpected Firebase URL")
 
     def command(self, *args, **kwargs):
         self.journal.append(("command", args, kwargs))
@@ -106,7 +121,7 @@ class Http:
         self.overrides = {}
         self.oauth_discovery_status = 200
         self.metadata = {"issuer": ISSUER, "jwks_uri": JWKS,
-                         "authorization_endpoint": ISSUER + "authorize", "token_endpoint": ISSUER + "oauth/token",
+                         "authorization_endpoint": ISSUER + "/authorize", "token_endpoint": ISSUER + "/token",
                          "response_types_supported": ["code"], "grant_types_supported": ["authorization_code", "refresh_token"],
                          "code_challenge_methods_supported": ["S256"]}
         self.keys = [{"kty": "RSA", "kid": "signing-1", "use": "sig", "alg": "RS256",
@@ -118,10 +133,6 @@ class Http:
         self.cloud.journal.append(("http", (url, transport, method), {"headers": headers, "body": body}))
         if (url, transport) in self.overrides:
             return self.overrides[(url, transport)]
-        if url == ISSUER + ".well-known/oauth-authorization-server":
-            return response(self.oauth_discovery_status, self.metadata)
-        if url == ISSUER + ".well-known/openid-configuration":
-            return response(body=self.metadata)
         if url == JWKS:
             return response(body={"keys": self.keys})
         if url == deploy.BACKEND_URL + "/v1/status":
@@ -130,6 +141,12 @@ class Http:
         public = bool(deploy.public_bindings(self.cloud.policies[deploy.SERVICE]))
         if not public and transport != "private":
             return response(403)
+        if url == origin + "/.well-known/oauth-authorization-server":
+            return response(body=self.metadata)
+        if url == origin + "/dashboard/config":
+            return response(body={"projectId": deploy.PROJECT, "apiKey": "public-firebase-api-key"})
+        if url == origin + "/dashboard/api/status":
+            return response(401)
         if url == origin + "/v1/health":
             return response(body={"service": "ai-coach-mcp", "status": "ok"})
         metadata_url = origin + "/.well-known/oauth-protected-resource/mcp"
@@ -147,17 +164,15 @@ def test_requires_explicit_nonplaceholder_configuration_before_cloud_calls(confi
     config_file.write_text('{}')
     monkeypatch.setattr(deploy, "Cloud", lambda *_: pytest.fail("Cloud constructed before config validation"))
     with pytest.raises(SystemExit, match="requires exactly"):
-        deploy.main(["--oauth-config", str(config_file)])
+        deploy.main(["--firebase-config", str(config_file)])
 
 
 @pytest.mark.parametrize("changes", [
-    {"owner_subject": ""}, {"owner_subject": "EXACT-IMMUTABLE-OWNER-SUBJECT"},
-    {"owner_subject": " auth0|owner"}, {"owner_subject": "auth0|two users"},
-    {"oauth_issuer": "https://YOUR-ISSUER/"}, {"oauth_issuer": "https://example.com/"},
-    {"oauth_jwks_url": "http://owner-tenant.auth0.com/jwks"},
-    {"oauth_jwks_url": "https://other-tenant.auth0.com/jwks"},
-    {"owner_subject": "x" * 257}, {"oauth_issuer": "https://owner-tenant.auth0.com/?secret=value"},
-    {"oauth_issuer": "https://user:password@owner-tenant.auth0.com/"},
+    {"owner_subject": ""}, {"owner_subject": " owner"}, {"owner_subject": "two users"},
+    {"owner_subject": "x" * 129}, {"firebase_project_id": "other-project"},
+    {"firebase_api_key": "bad\nkey"}, {"oauth_redirect_uris": []},
+    {"oauth_redirect_uris": ["http://evil.example/cb"]}, {"access_token": "secret"},
+    {"oauth_issuer": "https://retired-provider.example"},
 ])
 def test_invalid_or_placeholder_settings_fail_closed(config_file, changes):
     data = json.loads(config_file.read_text())
@@ -196,7 +211,7 @@ def test_success_deploys_private_then_exposes_only_oauth_adapter(settings):
     assert f"--service-account={deploy.RUNTIME}" in build
     assert f"--build-service-account=projects/{deploy.PROJECT}/serviceAccounts/{deploy.BUILDER}" in build
     env = cloud.environments[0]
-    assert set(env) == {"BACKEND_URL", "BACKEND_ALLOWED_HOST", "MCP_PUBLIC_URL", "OAUTH_ISSUER", "OAUTH_JWKS_URL", "OAUTH_OWNER_SUBJECT"}
+    assert set(env) == {"BACKEND_URL", "BACKEND_ALLOWED_HOST", "MCP_PUBLIC_URL", "FIREBASE_PROJECT_ID", "FIREBASE_API_KEY", "FIREBASE_OWNER_UID", "OAUTH_REDIRECT_URIS", "AUTH_FIRESTORE_DATABASE"}
     assert "synthetic-google-id-token" not in json.dumps(env)
     publication = next(index for index, (kind, args, _) in enumerate(cloud.journal)
                        if kind == "command" and "--member=allUsers" in args)
@@ -214,7 +229,7 @@ def test_provider_or_backend_failure_makes_no_cloud_mutations(settings):
         cloud = Cloud()
         http = Http(cloud)
         if target == "provider":
-            http.metadata["issuer"] = "https://different.auth0.com/"
+            http.keys = []
         else:
             http.overrides[(deploy.BACKEND_URL + "/v1/status", "public")] = response(200, {"private": "must not print"})
         with pytest.raises(deploy.DeploymentError):
@@ -222,32 +237,26 @@ def test_provider_or_backend_failure_makes_no_cloud_mutations(settings):
         assert cloud.mutations == []
 
 
-@pytest.mark.parametrize("change", [
-    {"jwks_uri": "https://different.auth0.com/jwks"},
-    {"authorization_endpoint": "http://owner-tenant.auth0.com/authorize"},
-    {"token_endpoint": "https://different.auth0.com/token"},
-    {"response_types_supported": ["token"]},
-    {"grant_types_supported": ["client_credentials"]},
-    {"code_challenge_methods_supported": ["plain"]},
-])
-def test_provider_requires_compatible_discovery(settings, change):
-    cloud, http = Cloud(), None
-    http = Http(cloud)
-    http.metadata.update(change)
+@pytest.mark.parametrize("section,changes", [("provider", {"enabled": False}),
+    ("config", {"authorizedDomains": []}), ("user", {"disabled": True}),
+    ("user", {"emailVerified": False}), ("user", {"providerUserInfo": []}), ("user", {"localId": "other"})])
+def test_firebase_owner_and_provider_preflight(settings, section, changes):
+    cloud = Cloud()
+    cloud.firebase_changes[section] = changes
     with pytest.raises(deploy.DeploymentError):
-        deploy.deploy(cloud, settings, ROOT / "adapters/mcp", http=http)
+        deploy.deploy(cloud, settings, ROOT / "adapters/mcp", http=Http(cloud))
     assert cloud.mutations == []
 
 
-def test_oidc_discovery_fallback_and_supported_key(settings):
-    cloud = Cloud()
-    http = Http(cloud)
-    http.oauth_discovery_status = 404
+def test_only_public_firebase_signing_keys_are_accepted(settings):
+    http = Http(Cloud())
     deploy.verify_provider(settings, http)
-    assert any(kind == "http" and args[0].endswith("openid-configuration") for kind, args, _ in cloud.journal)
-    http.keys[0]["use"] = "enc"
-    with pytest.raises(deploy.DeploymentError, match="signing keys"):
-        deploy.verify_provider(settings, http)
+    for field, value in (("use", "enc"), ("d", "private"), ("kty", "EC")):
+        original = copy.deepcopy(http.keys)
+        http.keys[0][field] = value
+        with pytest.raises(deploy.DeploymentError):
+            deploy.verify_provider(settings, http)
+        http.keys = original
 
 
 def test_wrong_project_or_projectwide_runtime_permission_is_rejected(settings):
@@ -328,114 +337,45 @@ def test_readonly_check_does_not_create_resources_or_claim_ready(settings):
     assert cloud.mutations == []
 
 
-@pytest.fixture
-def dashboard_config(tmp_path):
-    path = tmp_path / "dashboard-auth0.json"
-    path.write_text(json.dumps({"version": 1, "tenant": "owner-tenant.auth0.com",
-        "audience": deploy.PUBLIC_URL, "client_id": "public-dashboard-client",
-        "grant_id": "cgr_dashboard", "connection_id": "con_owner",
-        "callback": deploy.PUBLIC_URL.removesuffix("/mcp") + "/dashboard/"}))
-    return path
+
+def test_redeployment_replaces_retired_identity_configuration(settings):
+    cloud = Cloud()
+    cloud.chat_exists = True
+    cloud.chat_env = [
+        {"name": "OAUTH_ISSUER", "value": "https://retired-idp.example/"},
+        {"name": "OAUTH_AUDIENCE", "value": "retired-audience"},
+        {"name": "OAUTH_JWKS_URL", "value": "https://retired-idp.example/jwks"},
+        {"name": "OAUTH_OWNER_SUBJECT", "value": "retired-owner"},
+        {"name": "DASHBOARD_CLIENT_ID", "value": "retired-client"},
+    ]
+    deploy.deploy(cloud, settings, ROOT / "adapters/mcp", http=Http(cloud))
+    env = cloud.environments[0]
+    legacy_keys = {"OAUTH_ISSUER", "OAUTH_AUDIENCE", "OAUTH_JWKS_URL",
+                   "OAUTH_OWNER_SUBJECT", "DASHBOARD_CLIENT_ID"}
+    assert legacy_keys.isdisjoint(env.keys())
+    assert env["FIREBASE_OWNER_UID"] == OWNER
+    assert env["AUTH_FIRESTORE_DATABASE"] == "ai-coach-auth"
+    assert env["FIREBASE_PROJECT_ID"] == settings.firebase_project_id
+    assert env["MCP_PUBLIC_URL"] == settings.public_url
+    assert env["BACKEND_URL"] == settings.backend_url
 
 
-@pytest.fixture
-def dashboard_source(tmp_path):
+def test_dashboard_requires_a_built_shell(settings, tmp_path):
     source = tmp_path / "adapter"
     (source / "src/ai_coach_mcp").mkdir(parents=True)
-    (source / "src/ai_coach_mcp/app.py").write_text("# Test build input")
-    (source / "Dockerfile").write_text("# Test build input")
-    (source / "static/dashboard").mkdir(parents=True)
-    (source / "static/dashboard/index.html").write_text("<!doctype html><main id='root'></main>")
-    return source
-
-
-def test_dashboard_config_is_separate_and_exact(settings, dashboard_config):
-    configured = deploy.load_dashboard_config(dashboard_config, settings)
-    assert configured.dashboard_client_id == "public-dashboard-client"
-    assert settings.dashboard_client_id == ""
-    assert configured.owner_subject == settings.owner_subject
-    assert configured.oauth_issuer == settings.oauth_issuer
-    assert configured.public_url == settings.public_url
-
-
-@pytest.mark.parametrize("changes", [
-    {"version": 2}, {"version": True}, {"tenant": "other.auth0.com"},
-    {"audience": deploy.BACKEND_URL}, {"callback": "https://attacker.example/dashboard/"},
-    {"client_id": ""}, {"client_id": "x\nsecret"}, {"client_id": None},
-    {"connection_id": []}, {"grant_id": "has spaces"}, {"client_secret": "never-read-this"},
-])
-def test_dashboard_config_rejects_wrong_tenant_audience_callback_and_secrets(settings, dashboard_config, changes):
-    config = json.loads(dashboard_config.read_text())
-    config.update(changes)
-    dashboard_config.write_text(json.dumps(config))
-    with pytest.raises(deploy.DeploymentError):
-        deploy.load_dashboard_config(dashboard_config, settings)
-
-
-def test_invalid_dashboard_config_fails_before_cloud_calls(config_file, dashboard_config, monkeypatch):
-    dashboard_config.write_text("{}")
-    monkeypatch.setattr(deploy, "Cloud", lambda *_: pytest.fail("Invalid config accessed cloud"))
-    with pytest.raises(SystemExit, match="requires exactly"):
-        deploy.main(["--oauth-config", str(config_file), "--dashboard-config", str(dashboard_config)])
-
-
-def test_dashboard_deploy_sets_only_the_public_client_environment(settings, dashboard_config, dashboard_source):
-    settings = deploy.load_dashboard_config(dashboard_config, settings)
-    cloud = Cloud()
-    deploy.deploy(cloud, settings, dashboard_source, http=Http(cloud))
-    env = cloud.environments[0]
-    assert env["DASHBOARD_CLIENT_ID"] == "public-dashboard-client"
-    assert set(env) == {"BACKEND_URL", "BACKEND_ALLOWED_HOST", "MCP_PUBLIC_URL", "OAUTH_ISSUER",
-                        "OAUTH_JWKS_URL", "OAUTH_OWNER_SUBJECT", "DASHBOARD_CLIENT_ID"}
-    assert all("secret" not in key.casefold() for key in env)
-
-
-def test_mcp_redeploy_preserves_existing_dashboard_client(settings, dashboard_source):
-    cloud = Cloud()
-    cloud.chat_exists = True
-    cloud.chat_env = [{"name": "DASHBOARD_CLIENT_ID", "value": "existing-dashboard-client"},
-                      {"name": "UNRELATED_VALUE", "value": "must-not-propagate"}]
-    deploy.deploy(cloud, settings, dashboard_source, http=Http(cloud))
-    assert cloud.environments[0]["DASHBOARD_CLIENT_ID"] == "existing-dashboard-client"
-    assert "UNRELATED_VALUE" not in cloud.environments[0]
-
-
-def test_explicit_dashboard_receipt_updates_existing_client(settings, dashboard_config, dashboard_source):
-    settings = deploy.load_dashboard_config(dashboard_config, settings)
-    cloud = Cloud()
-    cloud.chat_exists = True
-    cloud.chat_env = [{"name": "DASHBOARD_CLIENT_ID", "value": "previous-dashboard-client"}]
-    deploy.deploy(cloud, settings, dashboard_source, http=Http(cloud))
-    assert cloud.environments[0]["DASHBOARD_CLIENT_ID"] == "public-dashboard-client"
-
-
-@pytest.mark.parametrize("entries", [
-    [{"name": "DASHBOARD_CLIENT_ID", "valueFrom": {"secretKeyRef": {"name": "must-not-read", "key": "latest"}}}],
-    [{"name": "DASHBOARD_CLIENT_ID", "value": "a"}, {"name": "DASHBOARD_CLIENT_ID", "value": "b"}],
-    [{"name": "DASHBOARD_CLIENT_ID", "value": "a\nb"}],
-    [{"name": "DASHBOARD_CLIENT_ID", "value": None}],
-])
-def test_bad_existing_dashboard_config_stops_before_mutations(settings, dashboard_source, entries):
-    cloud = Cloud()
-    cloud.chat_exists = True
-    cloud.chat_env = entries
-    with pytest.raises(deploy.DeploymentError):
-        deploy.deploy(cloud, settings, dashboard_source, http=Http(cloud))
-    assert cloud.mutations == []
-
-
-def test_configured_dashboard_requires_built_shell_before_mutations(settings, dashboard_config, dashboard_source):
-    settings = deploy.load_dashboard_config(dashboard_config, settings)
-    (dashboard_source / "static/dashboard/index.html").unlink()
+    (source / "Dockerfile").write_text("FROM python")
+    (source / "src/ai_coach_mcp/app.py").write_text("")
     cloud = Cloud()
     with pytest.raises(deploy.DeploymentError, match="Build the dashboard"):
-        deploy.deploy(cloud, settings, dashboard_source, http=Http(cloud))
+        deploy.deploy(cloud, settings, source, http=Http(cloud))
     assert cloud.mutations == []
 
 
-def test_dashboard_readonly_preflight_does_not_mutate(settings, dashboard_config, dashboard_source):
-    settings = deploy.load_dashboard_config(dashboard_config, settings)
+@pytest.mark.parametrize("condition", [None, {"expression": "true"},
+    {"expression": 'resource.name=="projects/other/databases/(default)"'}])
+def test_auth_database_grant_cannot_be_broadened(settings, condition):
     cloud = Cloud()
-    result = deploy.deploy(cloud, settings, dashboard_source, http=Http(cloud), check_only=True)
-    assert result["deployed"] is False
+    cloud.project_policy["bindings"][0]["condition"] = condition or {}
+    with pytest.raises(deploy.DeploymentError, match="database-restricted"):
+        deploy.deploy(cloud, settings, ROOT / "adapters/mcp", http=Http(cloud))
     assert cloud.mutations == []

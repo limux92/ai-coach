@@ -1,4 +1,4 @@
-# Runtime versions verified 2026-09-15; regenerate and test deliberately.
+# Runtime versions verified 2026-09-22; regenerate and test deliberately.
 PyJWT==2.14.0
 annotated-types==0.8.0
 anyio==4.15.1
@@ -8,7 +8,13 @@ cffi==2.1.1
 charset-normalizer==3.5.1
 click==8.5.0
 cryptography==50.0.1
+google-api-core==2.38.0
 google-auth==2.58.0
+google-cloud-core==2.7.0
+google-cloud-firestore==2.30.0
+googleapis-common-protos==1.75.3
+grpcio-status==1.84.0
+grpcio==1.84.0
 h11==0.16.0
 httpcore2==2.13.0
 httpcore==1.0.9
@@ -21,6 +27,8 @@ mcp-types==2.2.0
 mcp==2.2.0
 opentelemetry-api==1.44.0
 packaging==26.3
+proto-plus==1.28.4
+protobuf==7.36.2
 pyasn1==0.6.4
 pyasn1_modules==0.4.2
 pycparser==3.0

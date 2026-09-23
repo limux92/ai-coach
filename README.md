@@ -2,6 +2,8 @@
 
 A self-hosted, single-athlete training archive, dashboard and read-only AI coaching connection. It imports eligible Garmin and Zwift workouts from Intervals.icu, preserves original files, and calculates reusable training summaries.
 
+For a local AI coding assistant, start with the [handoff and deployment runbook](README_LOCAL_AI.md).
+
 ## Architecture
 
 ```text
@@ -20,7 +22,7 @@ Garmin / uploaded Garmin or Zwift FIT
    Training dashboard    MCP client
 ```
 
-Cloud Scheduler starts imports every five minutes. The private API uses Google Cloud IAM. A separate OAuth-protected service exposes the dashboard and seven read-only MCP tools; its service account can invoke the backend without direct database or archive credentials.
+Cloud Scheduler starts imports every five minutes. The private API uses Google Cloud IAM. A separate OAuth-protected service exposes the dashboard and seven read-only MCP tools; its service account can invoke the backend and access a separate OAuth session database, without direct access to training records or the archive.
 
 ## Features
 
@@ -47,7 +49,7 @@ The application does not invent missing measurements or treat an empty date as a
 
 ## Development
 
-The Python containers target Python 3.12. Install each Python component in its own virtual environment.
+The backend container uses Python 3.14.7; the MCP adapter container and CI use Python 3.12. Both packages support Python 3.12+. Install each Python component in its own virtual environment.
 
 ```sh
 python3 -m venv .venv
@@ -68,7 +70,7 @@ The frontend build writes assets to `adapters/mcp/static/dashboard/`. Build them
 
 ## Set up your deployment
 
-Use a dedicated billing-enabled Google Cloud project and your own Intervals.icu and OAuth accounts. Configuration examples use placeholders; they are not working account credentials.
+Use a dedicated billing-enabled Google Cloud project and your own Intervals.icu and Firebase configuration. Configuration examples use placeholders; they are not working account credentials.
 
 ```sh
 python3 infra/provision.py --project YOUR_PROJECT_ID
@@ -80,7 +82,7 @@ Project creation and billing linking happen separately. The scripts do not silen
 
 Store the Intervals key in Secret Manager using the hidden prompt. Do not put credentials in command-line arguments, source, frontend builds or chat. Scheduled imports can access only data available through your connected Intervals account; a completed scan does not prove that an upstream service transferred your entire history.
 
-Configure an established OAuth provider, bind the verified owner's immutable subject, and use the adapter's exact `/mcp` URL as the API audience. See [chat connection](docs/CHAT_CONNECTION.md), [adapter setup](adapters/mcp/README.md) and [dashboard setup](docs/DASHBOARD.md). Public HTML, healthy services and OAuth denial probes do not by themselves verify an owner login or a successful training-data read.
+Configure Firebase Google sign-in and bind the verified owner UID. The gateway supplies the OAuth flow required by hosted MCP clients. Follow the [Firebase migration guide](docs/FIREBASE_AUTH.md), then reconnect the chat client and verify an actual training-data read. Health and denial probes alone do not establish owner access.
 
 ## Data model
 

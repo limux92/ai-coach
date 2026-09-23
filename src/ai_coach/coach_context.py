@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import math
-from datetime import date, datetime, timedelta, timezone
-from typing import Literal
+from datetime import UTC, date, datetime, timedelta
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 Period = Literal["day", "week", "month", "rolling7", "rolling28"]
@@ -16,15 +16,15 @@ WORKOUT_METRICS = (*TOTAL_FIELDS[:-1], "average_heart_rate_bpm", "max_heart_rate
                    "average_power_w", "average_speed_mps")
 
 
-def _now():
-    return datetime.now(timezone.utc)
+def _now() -> datetime:
+    return datetime.now(UTC)
 
 
-def _number(value):
+def _number(value: Any) -> int | float | None:
     return value if not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value) else None
 
 
-def _numbers(value, fields):
+def _numbers(value: Any, fields: tuple[str, ...]) -> dict[str, int | float | None]:
     value = value if isinstance(value, dict) else {}
     return {field: _number(value[field]) for field in fields if field in value}
 

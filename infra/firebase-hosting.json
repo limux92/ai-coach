@@ -1,0 +1,18 @@
+{
+  "redirects": [
+    {"glob": "/", "statusCode": 302, "location": "/dashboard/"}
+  ],
+  "rewrites": [
+    {
+      "glob": "/dashboard",
+      "run": {"serviceId": "ai-coach-chat", "region": "europe-north1"}
+    },
+    {
+      "glob": "/dashboard/**",
+      "run": {"serviceId": "ai-coach-chat", "region": "europe-north1"}
+    }
+  ],
+  "headers": [
+    {"glob": "**", "headers": {"Cache-Control": "private, no-store"}}
+  ]
+}

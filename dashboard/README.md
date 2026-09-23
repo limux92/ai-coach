@@ -1,6 +1,6 @@
 # Training dashboard
 
-A responsive, read-only training dashboard and calendar served at `/dashboard/` by the existing MCP adapter. Production includes no synthetic data, API keys, or environment-file configuration.
+A responsive, read-only training dashboard and calendar served at `/dashboard/` by the existing MCP adapter. Production includes no synthetic training data or private credentials. Firebase web configuration is public configuration, not a training-data credential.
 
 ## Build and test
 
@@ -17,7 +17,7 @@ The Vite build writes self-hosted assets to `../adapters/mcp/static/dashboard/`.
 
 ## Runtime contract
 
-The page obtains public Auth0 settings from `/dashboard/config`, then signs in with Authorization Code + PKCE using Auth0 SPA SDK. Access and rotating refresh tokens are held in memory. Runtime scope includes `coach:read` and `offline_access`; no training data or tokens are written to browser storage.
+The page obtains Firebase web settings from `/dashboard/config` and signs in with Google. Firebase sessions use session storage and are cleared on sign-out; training data is not persisted in browser storage. The API accepts only signed ID tokens for the configured owner. `/dashboard/connect` handles explicit OAuth consent for the chat client. See [Firebase authentication](../docs/FIREBASE_AUTH.md).
 
 Authenticated reads go to `/dashboard/api`. Workout and plan pages follow `next_cursor`; sample pages follow `next_offset`. Date arithmetic uses the configured athlete timezone for today and UTC arithmetic for date-only calendars, including leap days and year boundaries.
 

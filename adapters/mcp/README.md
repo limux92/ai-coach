@@ -20,37 +20,28 @@ Pagination cursors and sample offsets are preserved. Responses above 64 KB are r
 
 Plans imported from Intervals and plans stored locally remain distinguishable. Reading a plan does not send it to a watch. Coaching instructions require checking freshness and treating missing data as unknown.
 
-## Authentication boundaries
+## Authentication and deployment
 
-1. **Client → adapter:** an established provider issues an OAuth access token. The adapter validates JWT signature, exact issuer, `/mcp` audience, expiry, issued-at/not-before, `coach:read` and the configured immutable owner subject. Only RS256/ES256 are accepted. A valid token for another subject is denied.
-2. **Adapter → backend:** the attached Google service account obtains an identity token for the exact backend URL. Incoming OAuth tokens and cookies are never forwarded. Keep backend Cloud Run IAM invocation checks enabled.
+Both the dashboard and hosted chat use Firebase Google sign-in. The adapter also
+implements an OAuth authorization service because Firebase ID-token login alone
+cannot supply the authorization-code/PKCE flow required by hosted MCP clients.
 
-Grant the adapter service account `roles/run.invoker` on the one backend service only. It needs no Firestore, Storage, Secret Manager, Intervals or project-wide administrative permission. IAM invocation is service-wide; the adapter's fixed method/path allowlist restricts its exposed operations to reads.
+See [Firebase authentication](../../docs/FIREBASE_AUTH.md) for setup, owner binding,
+the isolated OAuth database, deployment, revocation and acceptance checks.
 
-Missing required authentication settings fail startup. Static health, OAuth discovery, the dashboard shell and public OAuth configuration are accessible without a training-data token. All training API routes require owner authorization.
+Required environment settings are `BACKEND_URL`, `BACKEND_ALLOWED_HOST`,
+`MCP_PUBLIC_URL`, `FIREBASE_PROJECT_ID`, `FIREBASE_API_KEY`, `FIREBASE_OWNER_UID`
+and `OAUTH_REDIRECT_URIS` (a JSON array of exact approved HTTPS callbacks).
+`AUTH_FIRESTORE_DATABASE` must be `ai-coach-auth`.
 
-MCP is available at `/mcp`. The outer ASGI lifespan manages the MCP session manager and HTTP clients. Streamable HTTP is stateless with JSON responses; multiple instances do not require sticky sessions. MCP host/origin allowlists remain enabled.
-
-## Configuration
-
-Set these variables using your deployment's actual values. The examples are placeholders:
-
-```text
-BACKEND_URL=https://your-backend.run.app
-BACKEND_ALLOWED_HOST=your-backend.run.app
-MCP_PUBLIC_URL=https://your-adapter.run.app/mcp
-OAUTH_ISSUER=https://YOUR-TENANT.auth0.com/
-OAUTH_JWKS_URL=https://YOUR-TENANT.auth0.com/.well-known/jwks.json
-OAUTH_OWNER_SUBJECT=VERIFIED-IMMUTABLE-OWNER-SUBJECT
-```
-
-`BACKEND_URL` must use HTTPS, have no credentials/query/path, use a `run.app` hostname and match `BACKEND_ALLOWED_HOST` exactly. Incoming requests cannot change it. Cloud Run uses an attached service account without downloaded key files.
-
-Optional `DASHBOARD_CLIENT_ID` configures a separate public SPA client. Its absence leaves MCP operational and shows the dashboard's setup state. The dashboard obtains configuration from `/dashboard/config`, uses authorization code with PKCE and an in-memory token cache, and reads `/dashboard/api`. The gateway validates owner tokens before routing and restricts dates, query fields and page sizes. Responses use `no-store` and a constrained Content Security Policy.
+The browser API verifies Firebase ID tokens. MCP accepts only gateway-issued
+opaque OAuth tokens bound to the owner, client, `coach:read` and exact resource.
+Incoming tokens are never forwarded to the private training backend. The gateway
+uses its attached Google identity to invoke fixed read-only backend routes.
 
 ## Build and tests
 
-From `adapters/mcp`:
+Use a separate environment in this directory:
 
 ```sh
 python3 -m venv .venv
@@ -59,32 +50,7 @@ python3 -m venv .venv
 .venv/bin/python -m pytest -q
 ```
 
-Tests use generated signing keys, mocked JWKS and mocked backend responses. They do not retrieve live training data, mint Google credentials or contact cloud services. The production container targets Python 3.12.
-
-Build the frontend from the repository root before building the adapter container:
-
-```sh
-npm --prefix dashboard ci
-npm --prefix dashboard run build
-```
-
-Generated assets belong in `adapters/mcp/static/dashboard/`; the adapter Dockerfile includes them. See [dashboard documentation](../../docs/DASHBOARD.md).
-
-## Deployment and connection
-
-Configure authorization-code/PKCE S256, discovery, the exact resource audience, client registration or preregistration, and the callback required by your MCP host. Establish ownership through a real login; do not infer it from an unverified email or management account.
-
-Review the operator helper's deployment configuration before running [`infra/deploy_chat.py`](../../infra/deploy_chat.py). It checks the provider and private backend, deploys the adapter privately, probes static health/discovery/OAuth denial, then publishes only the adapter. Failed final probes restore private IAM. Those probes do not establish a successful owner login or hosted tool call.
-
-Complete owner login and verify an actual read in your chosen client. Check wrong-user denial and token renewal separately. Keep live verification results private. The adapter implements a resource server; it does not issue access tokens or complete consent for the user.
-
-See [chat connection setup](../../docs/CHAT_CONNECTION.md), [infrastructure](../../infra/README.md) and [summary semantics](../../docs/COMPUTED_SUMMARIES.md).
-
-## References
-
-- [OpenAI MCP authentication](https://developers.openai.com/plugins/build/auth)
-- [OpenAI MCP server guide](https://developers.openai.com/plugins/build/mcp-server)
-- [OpenAI connection testing](https://developers.openai.com/plugins/deploy/connect-chatgpt)
-- [Official Python SDK](https://github.com/modelcontextprotocol/python-sdk)
-- [SDK ASGI mounting](https://py.sdk.modelcontextprotocol.io/run/asgi/)
-- [SDK authorization](https://py.sdk.modelcontextprotocol.io/run/authorization/)
+Tests exercise real RSA signature verification and the OAuth endpoints, with
+mocked Google HTTP, synthetic records and a memory store. No training records or
+cloud writes are used. Build `dashboard/` before building the adapter image.
+The production adapter container uses Python 3.12.

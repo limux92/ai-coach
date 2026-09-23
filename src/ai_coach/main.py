@@ -2,10 +2,12 @@
 import json
 import logging
 import os
+import traceback
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime
 from functools import lru_cache
 from typing import Annotated, Any, Literal
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
@@ -14,6 +16,9 @@ from pydantic import BaseModel, Field, model_validator
 
 from .config import Settings
 from .storage import Store, safe_id, utcnow
+from .sync import run_sync
+from .dashboard import bounded_page, plan_projection, validate_window, workout_detail, workout_projection
+from .coach_context import build_context, read_summary, summary_freshness
 
 app = FastAPI(title="Private AI Coach Data", version="0.1.0")
 logger = logging.getLogger("ai_coach")
@@ -55,6 +60,7 @@ class PlannedWorkout(BaseModel):
 
     @model_validator(mode="after")
     def validate_size(self):
+        # Count encoded bytes exactly and reject NaN/Infinity at every nesting level.
         if len(json.dumps([self.steps, self.targets], allow_nan=False).encode()) > 200000:
             raise ValueError("Structured workout is too large")
         if self.completed_workout_id:
@@ -84,15 +90,18 @@ def status():
 
 @app.post("/internal/sync")
 def sync(request: SyncRequest | None = None):
-    from .sync import run_sync
     try:
         result = run_sync(store(), settings(), backfill=(request.backfill if request else True))
         if result.get("status") == "partial":
             return JSONResponse(result, status_code=503)
         return result
     except Exception as exc:
-        # Do not include upstream response bodies, API keys or health payloads in logs.
-        logger.error(json.dumps({"severity": "ERROR", "event": "sync_failed", "error_type": type(exc).__name__}))
+        # Exception messages/source lines can contain credentials or training data.
+        # Keep useful frame locations, without the message, source text or locals.
+        frames = [{"file": frame.filename.rsplit("/", 1)[-1], "line": frame.lineno,
+                   "function": frame.name} for frame in traceback.extract_tb(exc.__traceback__)]
+        logger.error(json.dumps({"severity": "ERROR", "event": "sync_failed",
+                                 "error_type": type(exc).__name__, "frames": frames}))
         raise HTTPException(503, "Sync failed; retained data and cursors will be retried") from None
 
 
@@ -125,7 +134,6 @@ def list_items(collection, oldest, newest, limit, after):
 def dashboard_workouts(oldest: date, newest: date,
                        limit: Annotated[int, Query(ge=1, le=50)] = 50,
                        after: Annotated[str | None, Query(min_length=1, max_length=180)] = None):
-    from .dashboard import bounded_page, validate_window, workout_projection
     validate_window(oldest, newest)
     return bounded_page(list_items("workouts", oldest, newest, limit, after), workout_projection)
 
@@ -134,14 +142,12 @@ def dashboard_workouts(oldest: date, newest: date,
 def dashboard_plans(oldest: date, newest: date,
                     limit: Annotated[int, Query(ge=1, le=50)] = 50,
                     after: Annotated[str | None, Query(min_length=1, max_length=180)] = None):
-    from .dashboard import bounded_page, plan_projection, validate_window
     validate_window(oldest, newest)
     return bounded_page(list_items("planned_workouts", oldest, newest, limit, after), plan_projection)
 
 
 @app.get("/v1/dashboard/workouts/{workout_id}")
 def dashboard_workout(workout_id: str):
-    from .dashboard import workout_detail
     return workout_detail(workout(workout_id))
 
 
@@ -262,7 +268,6 @@ def observations(oldest: date, newest: date, limit: Annotated[int, Query(ge=1, l
 
 @app.get("/v1/context")
 def context(days: Annotated[int, Query(ge=1, le=90)] = 42, upcoming: Annotated[int, Query(ge=1, le=90)] = 14):
-    from .coach_context import build_context
     return build_context(store(), settings(), days=days, upcoming=upcoming, sync_status=status())
 
 
@@ -270,8 +275,6 @@ def context(days: Annotated[int, Query(ge=1, le=90)] = 42, upcoming: Annotated[i
 def training_summary(period: Literal["day", "week", "month", "rolling7", "rolling28"],
                      summary_date: Annotated[date, Query(alias="date")]):
     """One saved period: week/month resolve the supplied date to its containing period."""
-    from zoneinfo import ZoneInfo
-    from .coach_context import read_summary, summary_freshness
     today = datetime.now(ZoneInfo(settings().timezone)).date()
     summary = read_summary(store(), period, summary_date, today=today)
     if summary is None:
