@@ -13,6 +13,15 @@ Every release deploys both services. It does not import training data, provision
 resources or change IAM. Changes under `infra/` relative to `origin/main` stop
 the routine release and need a separate infrastructure review.
 
+The one-time `--physiology-scheduler-migration` option binds that separate review
+to the exact recorded `infra/deploy.py` diff; any other infrastructure change still
+fails. It verifies the existing Scheduler job before publication, then updates only
+its deadline to 300 seconds and both retry limits to zero after both services pass.
+Target, identity, schedule, other configuration and paused/enabled state are preserved.
+It does not run the infrastructure bootstrap script. A Scheduler-stage failure leaves
+the successfully released service revisions in place and marks the overall receipt
+failed; inspect the saved Scheduler snapshots before any recovery action.
+
 Use this for compatible application updates. The two traffic switches are
 sequential, backend first, so API changes must work with the previous gateway
 during that interval. Schema migrations and coordinated breaking changes need
@@ -77,7 +86,7 @@ agent's approval rules or an earlier rejected publication request.
    staged tree. Installs frontend dependencies with `npm ci`.
 2. Runs the local checks and scans. Stops if source changes during the run.
 3. Reads current cloud configuration/IAM for both services. Verifies gateway
-   public metadata and access denials, and private backend static `/healthz`.
+   public metadata and access denials, and private backend static `/health`.
    Saves both previous traffic allocations and recovery commands.
 4. Commits staged files, pushes the current branch and opens/reuses a PR. On
    main it creates a release branch. Waits up to 30 minutes for all four named
@@ -122,7 +131,7 @@ inspect the receipt and live traffic before retrying. The saved
 cannot be verified. Concurrent changes by another operator require review.
 
 The backend probe uses a short-lived identity token from the existing Google
-Cloud login solely for `/healthz`, whose response is static, following
+Cloud login solely for `/health`, whose response is static, following
 [Google's private-service test flow](https://docs.cloud.google.com/run/docs/authenticating/developers#test_your_private_service). The token stays in
 memory and is never written to the release logs. It also checks that anonymous
 requests are denied. No authenticated `/v1/status`, workout, database or sync

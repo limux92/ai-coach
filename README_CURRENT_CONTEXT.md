@@ -1,136 +1,209 @@
-# AI Coach — fresh-chat context
+# AI Coach — fresh-chat handoff
 
-Use this file to start a new Codex conversation without carrying old chat history.
-It summarizes decisions and boundaries; inspect the repository and live services
-before treating operational details as current.
+Updated 27 September 2026. Read this with `AGENTS.md`. Work in **AI-Coach**, not
+JustInterval. This records decisions and saved evidence, not a transcript or new
+deployment permission. Replace stale state after verified outcomes.
 
-## Project
+## Resume here
 
-AI Coach is Magne's private training archive and coaching interface. It imports
-workouts from Intervals.icu, preserves raw and structured history, and exposes a
-private dashboard plus seven read-only MCP tools for training analysis.
+1. Read this file, `.local/worker/README_HANDOFF.md` and `.local/worker/context.md`.
+2. Inspect `git status --short`, branch/HEAD, and
+   `.venv/bin/python scripts/harness.py status`.
+3. Preserve all staged, unstaged and untracked changes. Load only relevant source
+   and evidence; never send this whole handoff or private logs to workers.
+4. Summarize the state in at most five bullets, then continue the requested task.
+   Recheck live state before a new deployment or current-health claim.
 
-```text
-Intervals.icu
-    → scheduled private FastAPI importer (`ai-coach-sync`)
-    → Firestore `(default)` + Google Cloud Storage
-    → public login gateway (`ai-coach-chat`)
-        → Firebase Google-login dashboard
-        → gateway OAuth for hosted MCP clients
-        → private backend through Cloud Run IAM
-```
+Saved on branch `release/lightweight-dark-dashboard`, HEAD `44afae7`, with
+substantial uncommitted source. Closing the chat preserves local files; a fresh
+clone will lack unpublished code and ignored evidence. Resume in this workspace.
+No commit, push or deployment is part of saving this handoff.
 
-Google Cloud project: `magne-ai-coach-20260915`
-Primary Cloud Run region: `europe-north1`
-Dashboard target: `https://aiworkoutbuilder.app/dashboard/`
-Canonical MCP endpoint: `https://ai-coach-chat-600465847441.europe-north1.run.app/mcp`
+## Current task: traceable physiological modelling
 
-The custom domain routes the dashboard through Firebase Hosting. It does not
-replace the canonical MCP issuer/endpoint. Verify DNS and certificate state live
-before describing the custom domain as active.
+The physiology epic is implemented and verified locally. Read
+[architecture and acceptance ledger](docs/PHYSIOLOGY.md) and
+`.local/worker/physiology-verification.md` before changing it. Root checks passed
+541 tests plus 41 subtests; adapter checks passed 272 tests on 27 September.
+No cloud deployment, live athlete model validation or hosted AI evaluation was
+performed. Existing Garmin/OpenAI activation and health migration remain pending.
 
-## Authentication and security
+The pipeline now retains immutable acquired-evidence revisions, recent independent
+CP/W-prime and CS/D-prime fits, explicitly historical/retrospective analyses,
+cycling balance, sport-specific workload and conservative durability evidence.
+Context includes coverage, provenance, 7/28-day details, events and curated sources.
+Private read APIs/MCP tools and a bounded Quick Workout projection are integrated.
+Normalization gaps stay unknown; running balance remains deferred.
 
-- Firebase Google sign-in protects the dashboard and owner consent.
-- The gateway implements OAuth authorization code + PKCE for hosted MCP clients.
-- Auth0 is retired. Do not restore its helpers, configuration, tests, or docs.
-- OAuth state lives in the separate Firestore database `ai-coach-auth`.
-- The gateway service account must not read the training database directly; it
-  invokes the private backend through narrowly scoped Cloud Run IAM.
-- The backend must remain private. The public dashboard and MCP tools are
-  read-only and cannot trigger syncs or change training records.
-- Never print, commit, or send credentials, `.local/`, private exports, FIT files,
-  or personal training records to any model.
+GPT-oss ran visible regression/test drafts; both were rejected after the allowed
+correction attempt. Codex implemented and tested the final code. Gemini's corrected
+polling/Scheduler review was accepted and its changes checked offline. Job IDs and
+evidence are in the private verification note. No relevant jobs remain running;
+do not resume the older deferred wording review automatically.
 
-Read `docs/FIREBASE_AUTH.md`, `docs/CHAT_CONNECTION.md`,
-`docs/CUSTOM_DOMAIN.md`, and `infra/README.md` before auth or deployment work.
+Before publication/release, prepare the exact combined source payload, preserve
+the OAuth repair and existing user edits, and obtain the existing final release
+authorization. A deployment must apply/review Scheduler configuration separately
+from an image-only routine release, then prove actual authenticated behavior.
 
-## Coding workflow
+## Completed versus pending
 
-Codex is the architect and reviewer. The sole local worker is `gpt-oss:20b`
-through `scripts/local_worker.py`.
+| Work | Last verified state on 25 September |
+| --- | --- |
+| ChatGPT database connection | Repaired and deployed; actual hosted context, workout, lap and paginated sample reads passed |
+| Replacement connection | **Magne Training Database — Google** installed; obsolete Auth0 connection uninstalled with user approval |
+| OAuth hotfix | Gateway `ai-coach-chat-oauth-iss-260925` serving 100%; backend, runtime configuration and IAM preserved |
+| Garmin running and Zwift buttons | Implemented/tested locally; feature release, live OpenAI call and owner download pending |
+| Agent integration | Bounded GPT-oss/Gemini jobs, shared context snapshots and evidence checks implemented locally |
+| Full backend/gateway release | Earlier attempt failed health preflight; `/health` migration prepared locally, not deployed |
 
-Magne's preference: launch GPT-oss tasks through VS Code's visible integrated
-terminal, with the prompt/command and progress visible. Keep the terminal output
-available for inspection. Do not silently substitute a hidden/background run;
-explain any terminal-access limitation first. Keep VS Code open, without restarting
-or reloading it unless explicitly requested. This preference is also recorded in
-the project `AGENTS.md` and global Codex `~/.codex/AGENTS.md`.
+These are saved verification results, not a cloud check made while writing this
+README. The successful OAuth-only hotfix is separate from the failed full release.
+Live MCP has seven read-only tools; new workout-rendering tools remain local.
 
-1. Codex analyzes the request, sets acceptance criteria, and keeps architecture,
-   authentication, IAM, destructive operations, and release decisions.
-2. Delegate bounded implementation, debugging, refactoring, docs, and test drafts
-   to GPT-oss, one file or function at a time with only relevant tracked source.
-3. GPT-oss writes drafts under ignored `.local/worker/`; never execute or apply
-   them automatically. Codex reviews and integrates accepted work.
-4. Use low local reasoning by default. Allow one correction attempt, then narrow
-   the task or let Codex handle the difficult part.
-5. Run focused checks after integration and broader checks only when justified.
+## Retain the ChatGPT OAuth repair
 
-For hosted usage, start a fresh chat for each substantial objective. Prefer a
-lighter model and standard speed for routine planning/review; reserve Astra or
-high reasoning for architecture, security, difficult debugging, and releases.
-Batch several independent local drafts under one Codex plan, then review them
-together. Send compact failure summaries instead of full logs.
+The old connection cached retired Auth0 issuer/client settings; reconnect and
+refresh did not migrate them. Google-backed replacement registration then failed
+because the gateway allowed ChatGPT's stable callback without declaring RFC 9207
+issuer identification.
 
-Use concise `--label` values for local tasks. Record meaningful Codex stages with
-`scripts/workload.py`. The report is `.local/worker/workload.html`.
+`adapters/mcp/src/ai_coach_mcp/oauth.py` now advertises
+`authorization_response_iss_parameter_supported: true`, preserves the exact issuer
+in discovery and includes `iss` in SDK authorization error redirects. Successful
+consent already included it. Callback allowlists, PKCE and `coach:read` remain
+strict. Never restore Auth0 or allow arbitrary callbacks. Regression tests are in
+`adapters/mcp/tests/test_oauth.py`.
 
-## Recent changes
+The approved hotfix reused the exact serving image and replaced only `oauth.py`.
+Zero-traffic checks passed before promotion. Codex deployed it and verified real
+hosted reads. **Any full gateway build must include this local OAuth fix.**
 
-The dashboard uses small JavaScript and CSS modules with a JustInterval-inspired
-dark theme. `dashboard/README.md` maps each feature to its source file;
-`dashboard/src/styles/tokens.css` holds the palette. Frontend checks enforce
-formatting, behavior, 12 KB source-file limits, 240-character line limits, and
-production gzip budgets of 50 KB JavaScript and 6 KB CSS.
+The combined result is `.local/verification/mcp-repair/hosted-verification.json`.
+Its linked deployment and standalone OAuth test receipts retain false hosted-read
+flags because those earlier steps did not perform the later ChatGPT reads. Do not
+rewrite historical receipts or mistake those flags for the final outcome.
+Separate live-client token rotation/replay revocation passed and test grants were
+revoked. ChatGPT's own refresh after access-token expiry was not observed.
 
-The local worker accepts tracked file ranges (`--file path:START:END`), limits
-prompt plus source to 12 KB, uses 16K context, and defaults to 2,048 output tokens,
-a 120-second timeout and five-minute idle retention. The workload dashboard also
-includes measured Codex turn counters through `scripts/codex_usage.py`.
+See [chat connection](docs/CHAT_CONNECTION.md) and
+[Firebase authentication](docs/FIREBASE_AUTH.md). Private identifiers, verification
+chat, rollback revision and evidence paths are in `.local/worker/README_HANDOFF.md`.
 
-Release preparation on 23 September 2026 passed 364 backend tests plus 41 subtests,
-191 adapter tests and 12 frontend tests. These are historical results; inspect
-`git status` and rerun relevant checks after changes. Git publication and Cloud
-Run deployment are separate operations; verify both live before claiming either.
+## Next unfinished task: OpenAI-powered Garmin running download
 
-The token importer stores only IDs, timestamps, model names, status, and usage
-counters in ignored `.local/worker/codex_usage.json`. It does not copy prompt or
-response bodies. Input includes cached context and can count repeated context on
-every model call, so raw Codex and GPT-oss totals are not a fair model comparison.
+Magne selected **OpenAI** and a **downloadable workout file**, not Garmin Connect
+upload. Buttons: **Quick Ride · Zwift** (`.zwo`) and **Quick Run · Garmin** (`.fit`).
 
-## Verification
+- Running warm-up/cool-down end on **LAP press**: `duration_type=lap_press`,
+  `duration_s=null`, easy effort. FIT encodes these as open-duration steps.
+- Run/recovery intervals are timed, 30–1800 seconds each. Main set is 5–40 minutes,
+  maximum 50 steps including bookends. Display the timed set plus open bookends.
+- FIT sport is running; preserve explicit interval order. Use effort cues, never
+  invented pace/HR zones or cycling FTP. Running has its own schema/prompt/cache.
+- Both sports share a request lock, 60-second interval and ten attempts per UTC
+  day per process. A rest recommendation has no file.
+- Owner-authenticated empty POST routes: `/dashboard/api/quick-workout` and
+  `/dashboard/api/quick-workout/run`. Pure MCP render tools export supplied plans
+  without another model call or writing training records.
+
+Read [Quick Workout](docs/QUICK_WORKOUT.md) for the full contract and constraints.
+
+| Concern | Source |
+| --- | --- |
+| OpenAI, validation, caching | `adapters/mcp/src/ai_coach_mcp/quick_workout_{provider,schema,service}.py` |
+| Running prescription and FIT | Same directory: `running_workout_schema.py`, `garmin_workout.py` |
+| Owner routes and MCP exports | Same directory: `dashboard.py`, `app.py` |
+| Download UI | `dashboard/src/quick-workout.js`; related files in `dashboard/README.md` |
+| Tests | `adapters/mcp/tests/test_{running_workout,garmin_workout,quick_workout_flow}.py`, `dashboard/test/quick-workout.test.js` |
+
+Remaining steps:
+
+1. Recheck gateway settings. Last diagnostic found no `OPENAI_API_KEY` or
+   `QUICK_WORKOUT_MODEL`. Confirm an existing Secret Manager secret **name** and
+   model name, or prepare setup if absent; never request a key value in chat.
+   No OpenAI-named secret was found, but another name may exist.
+2. Prepare minimal runtime configuration and the exact public source payload.
+   `.local/worker/garmin-public-files.json` is stale after OAuth/docs changes;
+   regenerate and review before final publication/release approval.
+3. Follow `docs/LOCAL_DEPLOY_PROMPT.md` and `docs/DEPLOYMENT.md`. `/healthz` was
+   intercepted by Cloud Run's frontend. The local `/health` migration permits
+   only a verified exact-old-revision missing-route preflight. Candidate and
+   production checks remain strict. Never relax IAM or bypass a failed gate.
+4. After an authorized release, verify a real owner OpenAI recommendation, FIT
+   download and cycling behavior; refresh MCP tools if needed. Physical Garmin
+   import is still a separate device acceptance test.
+
+Avoid `infra/deploy_chat.py` for feature activation: its older bootstrap flow
+rebuilds environment/secrets. Routine releases preserve settings; configuration
+changes must be prepared and reviewed separately.
+
+## Agents and continuity
+
+Codex keeps the conversation, design, security, integration and final checks.
+GPT-oss drafts bounded application code/tests; Gemini drafts/reviews infrastructure.
+Run workers in VS Code's visible terminal and leave it open. Use fresh small
+packets, not accumulated chat history. Do not silently switch models or buy credits.
+
+`scripts/harness.py` manages jobs; `harness_context.py` freezes the curated
+`.local/worker/context.md` (maximum **4000 UTF-8 bytes**) into new briefs. Total
+input remains capped at 12 KB. Codex alone updates the memo after reviewing worker
+results. Existing job snapshots remain immutable; a memo grants no execution access.
+
+`gemini_worker.py`, `gemini_jobs.py` and `gemini_gate.py` provide fresh Antigravity
+review packets with exact-source access checks. The harness does not execute cloud
+commands. Direct scoped Gemini execution is separate and must return command and
+release evidence. A prior cloud diagnostic succeeded but its CLI timed out; that
+was not a deployment. The original conversation crash remains unexplained; the
+user ruled out spending caps and a fresh conversation worked.
+
+GPT-oss supplied running-schema and dashboard drafts. Its FIT encoder draft was
+rejected; Codex implemented the encoder and integration. Gemini completed readiness
+and health reviews. No jobs were running at handoff; one wording review is deferred.
+Do not automatically resume deferred jobs. Codex completed the auth repair.
+
+See [HARNESS](docs/HARNESS.md), [research](docs/AGENT_INTEGRATION_RESEARCH.md) and
+[local AI runbook](README_LOCAL_AI.md). `harness_release.py` requires a successful
+current routine release receipt; worker SUCCESS or a Git push proves no deployment.
+
+## Checks and boundaries
+
+Last recorded checks: **499 root tests + 41 subtests**, **265 adapter tests** after
+the OAuth fix, and **25 dashboard tests** plus format/build/gzip checks. Synthetic
+browser FIT download matched encoder bytes; independent `fitdecode` verified CRC,
+running sport, open bookends and timed interval order. These are prior implementation
+results, not suites rerun to write this handoff. Paid generation, live owner FIT
+download and physical watch import remain unverified.
+
+Run appropriate checks after source changes:
 
 ```sh
-# Token-dashboard work
-.venv/bin/python -m pytest -q tests/test_codex_usage.py
-
-# Backend and gateway
 .venv/bin/python -m pytest -q
 (cd adapters/mcp && .venv/bin/python -m pytest -q)
-
-# Dashboard
 npm --prefix dashboard run check
-
 git diff --check
 ```
 
-GitHub is public. A Git push does not deploy Google Cloud. Before publishing,
-inspect the diff and scan for secrets. Before deploying, preserve live Cloud Run
-configuration and verify actual traffic, IAM, owner login, training-data reads,
-and freshness. Health endpoints and old deployment receipts are insufficient.
+Backend remains private behind Cloud Run IAM. Firebase authenticates the owner;
+MCP uses separate gateway OAuth tokens. Never use Firebase ID tokens as MCP access
+tokens. OAuth state is isolated from training records. Public source excludes
+credentials, activity files and operational artifacts. The curated worker memo is
+the sole automatic exception to excluding `.local/` from worker prompts.
 
-## New-chat starter
+The user approved the now-completed OAuth-only gateway deployment and obsolete
+connection removal. Do not ask again for those actions or extend that permission
+to a full feature/backend release, IAM changes or source publication. Prepare any
+new action concretely before seeking final approval.
 
-Paste this into a new Codex chat opened in this repository:
+## Paste into a new chat
 
 ```text
-Read AGENTS.md and README_CURRENT_CONTEXT.md completely, then inspect git status.
-Preserve existing uncommitted work. Use Codex as the architect/reviewer and
-gpt-oss:20b through scripts/local_worker.py in the visible VS Code terminal for
-bounded drafts. Keep hosted-model context small, never send secrets or training records
-to a model, and do not deploy or push unless I explicitly request it.
-
-First, summarize the current working tree in at most five bullets and wait for my
-next task.
+Continue AI-Coach in this workspace. Read AGENTS.md and README_CURRENT_CONTEXT.md,
+then the local handoff and worker memo they reference. Inspect git status and
+harness status; preserve all staged, unstaged and untracked work.
+The ChatGPT Google connection repair is complete. The next unfinished task is
+OpenAI-powered Quick Run Garmin download with LAP-press warm-up/cool-down.
+Summarize the state in at most five bullets, then continue preparing that feature
+for release. Respect recorded approvals; do not repeat completed repair work.
+Prepare any new publication/deployment scope for final approval.
 ```

@@ -15,6 +15,18 @@ from put_secret import (JOB_NAME, attach_secret, enabled_secret_version,
                         require_secret_version, set_scheduler_state)
 
 
+def configure_scheduler_job(cloud, *, job_name, location, url, service_account):
+    """Five-minute checkpointed polling; next tick supplies durable retries."""
+    existing = cloud.json("scheduler", "jobs", "describe", job_name, f"--location={location}", allow_missing=True)
+    action = "update" if existing else "create"
+    headers = "--update-headers=Content-Type=application/json" if existing else "--headers=Content-Type=application/json"
+    cloud.command("scheduler", "jobs", action, "http", job_name,
+        f"--location={location}", "--schedule=*/5 * * * *", "--time-zone=Etc/UTC",
+        f"--uri={url}/internal/sync", "--http-method=POST", "--message-body={}",
+        headers, f"--oidc-service-account-email={service_account}", f"--oidc-token-audience={url}",
+        "--attempt-deadline=300s", "--max-retry-attempts=0", "--max-retry-duration=0s", capture=False)
+
+
 def verify_private(cloud: Cloud, url: str):
     # Exercise a real application route and Firestore access through private ingress.
     status_url = url.rstrip("/") + "/v1/status"
@@ -160,17 +172,7 @@ def main(argv=None):
     verify_private(cloud, url)
 
     job_name = JOB_NAME
-    existing_job = cloud.json("scheduler", "jobs", "describe", job_name,
-                               f"--location={args.scheduler_region}", allow_missing=True)
-    action = "update" if existing_job else "create"
-    headers = "--update-headers=Content-Type=application/json" if existing_job else \
-              "--headers=Content-Type=application/json"
-    cloud.command("scheduler", "jobs", action, "http", job_name,
-        f"--location={args.scheduler_region}", "--schedule=*/5 * * * *", "--time-zone=Etc/UTC",
-        f"--uri={url}/internal/sync", "--http-method=POST", "--message-body={}",
-        headers, f"--oidc-service-account-email={scheduler}", f"--oidc-token-audience={url}",
-        "--attempt-deadline=900s", "--min-backoff=10s", "--max-backoff=300s",
-        "--max-doublings=5", "--max-retry-attempts=3", capture=False)
+    configure_scheduler_job(cloud, job_name=job_name, location=args.scheduler_region, url=url, service_account=scheduler)
     # Pause before the final key check. If the connection script ran while the job
     # was being created, this final reconciliation enables it using that new key.
     schedule = set_scheduler_state(cloud, args.scheduler_region, connected=connected)

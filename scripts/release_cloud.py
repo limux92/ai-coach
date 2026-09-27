@@ -70,7 +70,7 @@ class CloudRelease:
         self.run.save()
         print(stage, flush=True)
 
-    def preflight(self):
+    def preflight(self, *, bootstrap_backend_health=None):
         self.before = self.snapshot("cloud-before")
         self.receipt.update(project=PROJECT, region=REGION, services=list(SERVICES),
                             owner_login_or_training_read_verified=False, manual_traffic_rollback={})
@@ -86,7 +86,14 @@ class CloudRelease:
                 name, f"--project={PROJECT}", f"--region={REGION}", "--to-revisions=" + traffic_argument(traffic(service)), "--quiet"]
         self.preserved(self.before)
         self.note("Verify existing private backend static health and gateway metadata")
-        probe_backend(BACKEND_URL)
+        if bootstrap_backend_health:
+            require(self.expected_traffic[BACKEND_SERVICE] == {bootstrap_backend_health: 100},
+                    "Health migration must name the exact existing backend revision at 100% traffic.")
+            result = probe_backend(BACKEND_URL, allow_missing_health=True)
+            self.receipt["backend_health_migration"] = {
+                "from_revision": bootstrap_backend_health, "existing_health": result}
+        else:
+            probe_backend(BACKEND_URL)
         probe_adapter(self.settings, http=http)
         self.receipt["previous_traffic"] = dict(self.expected_traffic)
 

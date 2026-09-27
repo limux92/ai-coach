@@ -62,10 +62,13 @@ It refuses a public data backend. Deployment temporarily makes the gateway
 private, tests metadata and missing/invalid-token denial, then publishes it.
 Failed final probes restore private gateway IAM.
 
-Reconnect a chat connector that still uses the previous identity provider;
-its old tokens will not work. Use the same `/mcp` URL, OAuth, `coach:read`, and complete
-Google sign-in/consent. Dynamic registration accepts only configured exact
-callback URLs. Other client callback URLs must be explicitly configured.
+Update a chat connector's saved issuer/client configuration when migrating from
+the previous identity provider, then reconnect. Reconnect alone can reuse the old
+provider. Verify the actual browser destination is the gateway's authorization
+and Firebase consent flow, not the retired provider. Its old tokens will not work.
+Use the same `/mcp` URL, OAuth, `coach:read`, and complete Google sign-in/consent.
+Dynamic registration accepts only configured exact callback URLs. Other client
+callback URLs must be explicitly configured. See [hosted connection checks](CHAT_CONNECTION.md).
 
 ## Validation and rollback
 
@@ -86,9 +89,10 @@ save tokens or training payloads.
 
 A live acceptance check must separately confirm dashboard owner login, seven MCP
 tools, a real training read, token renewal, wrong-user denial and anonymous
-backend denial. Health/discovery alone do not prove these work. The existing
-`infra/verify_chat_live.py` uses `.local/firebase-chat-login.json` and a private
-baseline.
+backend denial. Health/discovery alone do not prove these work. Test ChatGPT's
+actual saved connection separately from the helper's temporary OAuth client.
+The legacy `infra/verify_chat_live.py` token-file flow assumes JWT access tokens
+and must not be used for the current opaque gateway tokens.
 
 Before deploying, save Cloud Run service descriptions privately. Rollback to the
 previously serving revision restores its environment; database/IAM changes are

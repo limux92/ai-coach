@@ -6,6 +6,30 @@ no command-execution tools; they can display the command for you to paste.
 Replace the commit title before sending the prompt. Do not use this prompt as a
 substitute for any still-pending approval of the exact public file payload.
 
+## First deployment of the static health route
+
+Cloud Run's frontend can intercept `/healthz`; release probes use `/health`.
+The old backend revision may not contain this route. After reviewing its live
+anonymous 403 and authenticated application `{"detail":"Not Found"}` response,
+the release command can explicitly include
+`--bootstrap-backend-health EXACT_EXISTING_BACKEND_REVISION`.
+That revision must still receive exactly 100% of backend traffic at preflight.
+This permits only the old application's missing health route; candidate and
+production health remain mandatory 200 responses with the expected static JSON.
+It does not permit IAM/configuration changes or a Google frontend 404.
+Include this migration flag in the exact release command submitted for approval;
+omit it from subsequent releases after `/health` is available.
+
+For the separately reviewed physiology Scheduler change, also include
+`--physiology-scheduler-migration`. This accepts only the fixed reviewed
+infrastructure diff and applies the narrow existing-job retry/deadline migration.
+It cannot authorize unrelated infrastructure edits or IAM changes.
+
+The path choice is also documented in Google's
+[Scion Cloud Run deployment guide](https://googlecloudplatform.github.io/scion/hosted/ha/setup-gcp/#3f-verify-hub-health).
+
+## Reviewed release prompt
+
 ```text
 Work in /Users/magnelima/Workspace/AI-Coach.
 

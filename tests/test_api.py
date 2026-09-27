@@ -15,6 +15,14 @@ from ai_coach.config import Settings
 from ai_coach.storage import safe_id
 
 
+def test_static_health_never_reads_training_store(monkeypatch):
+    monkeypatch.setattr(main, "store", lambda: pytest.fail("Static health must not read data"))
+    with TestClient(main.app) as client:
+        response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"service": "ai-coach-data", "status": "ok", "version": "0.1.0"}
+
+
 class MemoryStore:
     def __init__(self):
         self.documents = {}

@@ -21,6 +21,7 @@ Paths below are relative to `dashboard/src/`.
 | Sign-in screen | `views/login.js`, `styles/login.css` |
 | App startup, session and initial data loading | `main.js` |
 | Authenticated API and list pagination | `api.js` |
+| Cycling/Zwift and running/Garmin recommendations | `quick-workout.js` |
 | Clicks, calendar navigation, keyboard controls | `events.js` |
 | Workout/sample loading and focus restoration | `workout-controller.js` |
 | Dates, aggregates and filtering | `data.js`, `selectors.js` |
@@ -50,8 +51,10 @@ The existing Python service serves these static files; building is not deploying
 
 ## Runtime contract
 
-This is a read-only view of imported records. Refresh reloads the view without
-starting a source sync. It neither creates workouts nor writes plans.
+Imported records remain read-only. Refresh reloads the view without starting a
+source sync. Quick Workout makes an authenticated POST to generate an in-memory
+cycling or running recommendation and matching Zwift or Garmin FIT download; it does not write training records or plans.
+See [Quick Workout](../docs/QUICK_WORKOUT.md) for runtime setup and model data flow.
 Firebase public web configuration comes from `/dashboard/config`; Google sign-in
 uses session storage. Training records are not persisted in browser storage.
 `/dashboard/api` accepts signed ID tokens for the configured owner.

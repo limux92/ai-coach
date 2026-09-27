@@ -179,8 +179,47 @@ def test_authenticated_backend_probe_reads_only_static_health(monkeypatch):
     monkeypatch.setattr(health, "http", http)
     health.probe_backend("https://candidate.run.app")
     assert len(calls) == 2
-    assert all(url == "https://candidate.run.app/healthz" for url, _ in calls)
+    assert all(url == "https://candidate.run.app/health" for url, _ in calls)
     assert calls[1][1]["headers"] == {"Authorization": "Bearer test-only-token"}
+
+
+@pytest.mark.parametrize("migration", [False, True])
+@pytest.mark.parametrize("status,body", [
+    (404, b'{"detail":"Not Found"}'), (404, b"Google frontend 404"),
+    (403, b"denied"), (500, b"failed"), (200, b'{"status":"wrong"}')])
+def test_health_migration_only_permits_application_missing_route(monkeypatch, migration, status, body):
+    monkeypatch.setattr(health, "identity_token", lambda: "test-token")
+    monkeypatch.setattr(health, "http", lambda _, **kw: health.Response(
+        status if kw.get("headers") else 403, {}, body))
+    if migration and status == 404 and body == b'{"detail":"Not Found"}':
+        assert health.probe_backend("https://old.run.app", allow_missing_health=True) == "missing-route"
+    else:
+        with pytest.raises(ReleaseError):
+            health.probe_backend("https://old.run.app", allow_missing_health=migration)
+
+
+@pytest.mark.parametrize("status", [200, 401, 404, 500])
+def test_health_migration_still_requires_anonymous_403(monkeypatch, status):
+    monkeypatch.setattr(health, "http", lambda *a, **k: health.Response(status, {}, b""))
+    monkeypatch.setattr(health, "identity_token", lambda: pytest.fail("Must reject anonymous response first"))
+    with pytest.raises(ReleaseError, match="deny anonymous"):
+        health.probe_backend("https://old.run.app", allow_missing_health=True)
+
+
+def test_migration_requires_exact_revision_and_candidates_remain_strict(monkeypatch):
+    fake = FakeCloud(monkeypatch)
+    calls = []
+    monkeypatch.setattr(cloud, "probe_backend", lambda origin, **kw: calls.append((origin, kw)) or "missing-route")
+    with pytest.raises(ReleaseError, match="exact existing"):
+        fake.subject.preflight(bootstrap_backend_health="wrong-revision")
+    assert calls == []
+    old = cloud.BACKEND_SERVICE + "-old"
+    fake.subject.preflight(bootstrap_backend_health=old)
+    assert calls == [(cloud.BACKEND_URL, {"allow_missing_health": True})]
+    assert fake.subject.receipt["backend_health_migration"] == {"from_revision": old, "existing_health": "missing-route"}
+    cloud.CloudRelease.probe(fake.subject, cloud.BACKEND_SERVICE, "https://candidate.run.app", {})
+    cloud.CloudRelease.probe(fake.subject, cloud.BACKEND_SERVICE, cloud.BACKEND_URL, {}, production=True)
+    assert calls[1:] == [("https://candidate.run.app", {}), (cloud.BACKEND_URL, {})]
 
 
 def test_token_failure_does_not_expose_provider_output(monkeypatch, capsys):

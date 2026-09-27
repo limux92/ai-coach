@@ -1,7 +1,7 @@
 import { getIdToken } from 'firebase/auth';
 
 export function createApi(getAuthInstance) {
-  async function api(path, signal) {
+  async function api(path, signal, method = 'GET') {
     const auth = getAuthInstance();
     let token;
     try {
@@ -13,6 +13,7 @@ export function createApi(getAuthInstance) {
       throw e;
     }
     const response = await fetch(`/dashboard/api${path}`, {
+      method,
       headers: { Authorization: `Bearer ${token}` },
       cache: 'no-store',
       signal,
@@ -55,5 +56,5 @@ export function createApi(getAuthInstance) {
     }
     throw new Error('This date range contains too many workouts. Please choose a smaller view.');
   }
-  return { api, fetchPages };
+  return { api, fetchPages, post: (path, signal) => api(path, signal, 'POST') };
 }

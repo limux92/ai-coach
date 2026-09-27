@@ -85,7 +85,7 @@ def invoke(client, bearer, name, args):
     return response.json()["result"]
 
 
-def test_initialization_metadata_and_seven_readonly_tools(settings, key):
+def test_initialization_metadata_and_readonly_tools(settings, key):
     app, tokens, _ = setup(settings, key, lambda request: pytest.fail("No backend call expected"))
     with TestClient(app, base_url=settings.public_url.removesuffix("/mcp")) as client:
         assert client.get("/healthz").json() == {"service": "ai-coach-mcp", "status": "ok"}
@@ -102,7 +102,8 @@ def test_initialization_metadata_and_seven_readonly_tools(settings, key):
         assert init.status_code == 200
         tools = rpc(client, bearer).json()["result"]["tools"]
         assert {tool["name"] for tool in tools} == {"get_coach_context", "list_completed_workouts",
-            "get_workout_details", "list_planned_workouts", "list_wellness", "get_workout_samples", "get_training_summary"}
+            "get_workout_details", "list_planned_workouts", "list_wellness", "get_workout_samples", "get_training_summary", "render_quick_workout", "render_running_workout",
+            "get_physiology_evidence", "get_physiology_events", "get_physiology_sessions"}
         for tool in tools:
             assert tool["annotations"]["readOnlyHint"] is True
             assert tool["annotations"]["destructiveHint"] is False
@@ -112,6 +113,12 @@ def test_initialization_metadata_and_seven_readonly_tools(settings, key):
 
 
 @pytest.mark.parametrize("name,args,path,query", [
+    ("get_physiology_evidence", {"kind": "model", "identifier": "model_123"}, "/v1/physiology/models/model_123", {}),
+    ("get_physiology_evidence", {"kind": "analysis", "identifier": "analysis_123"}, "/v1/physiology/analyses/analysis_123", {}),
+    ("get_physiology_evidence", {"kind": "workout", "identifier": "i-123"}, "/v1/workouts/i-123/physiology", {}),
+    ("get_physiology_events", {"analysis_id": "analysis_123", "offset": 1, "limit": 2},
+        "/v1/physiology/analyses/analysis_123/events", {"offset": "1", "limit": "2"}),
+    ("get_physiology_sessions", {"days": 28, "limit": 10}, "/v1/physiology/sessions", {"days": "28", "offset": "0", "limit": "10"}),
     ("get_coach_context", {"days": 7, "upcoming": 3}, "/v1/context", {"days": "7", "upcoming": "3"}),
     ("get_training_summary", {"period": "week", "date": "2026-09-15"}, "/v1/summaries", {"period": "week", "date": "2026-09-15"}),
     ("list_completed_workouts", {"oldest": "2026-09-01", "newest": "2026-09-15", "after": "i-12"}, "/v1/workouts",

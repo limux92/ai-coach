@@ -122,7 +122,10 @@ def bundle(run, git, sha, assets):
 
 def release(run, git, args, run_id):
     git.inspect(strict=True)
-    git.prepare()
+    if getattr(args, "physiology_scheduler_migration", False):
+        git.prepare(physiology_migration=True)
+    else:
+        git.prepare()
     tree = git.fingerprint()
     # Frozen installation for the frontend. Python venvs must already match their lockfiles.
     run(["npm", "--prefix", "dashboard", "ci", "--no-audit", "--no-fund"], label="Install locked dashboard dependencies")
@@ -130,7 +133,15 @@ def release(run, git, args, run_id):
     git.unchanged(tree)
     from release_cloud import CloudRelease
     cloud = CloudRelease(run, run.receipt)
-    cloud.preflight()
+    scheduler = None
+    if getattr(args, "physiology_scheduler_migration", False):
+        from release_scheduler import SchedulerMigration
+        scheduler = SchedulerMigration(cloud)
+        scheduler.preflight()
+    if args.bootstrap_backend_health:
+        cloud.preflight(bootstrap_backend_health=args.bootstrap_backend_health)
+    else:
+        cloud.preflight()
     pr, sha = git.publish(tree, args.message, run_id)
     run.save()
     git.wait_for_ci(pr, sha)
@@ -146,6 +157,8 @@ def release(run, git, args, run_id):
         git.assert_passed(pr, sha)
         git.unchanged(tree)
     cloud.deploy(sources, assets, sha, run_id, before_promote)
+    if scheduler:
+        scheduler.apply()
     run.receipt["status"] = "released"
 
 
@@ -157,11 +170,19 @@ def parser():
     mode.add_argument("--release", action="store_true", help="Commit staged files, push/PR, wait CI, deploy backend and gateway")
     value.add_argument("--public-repo", choices=[REPOSITORY], help="Acknowledge the reviewed public publication destination")
     value.add_argument("--message", help="Reviewed commit and PR title (required for --release)")
+    value.add_argument("--bootstrap-backend-health", metavar="EXISTING_REVISION",
+                       help="Explicit health-route migration from this exact serving backend revision; candidates stay strict")
+    value.add_argument("--physiology-scheduler-migration", action="store_true",
+                       help="Publish the exact reviewed Scheduler diff and update only its deadline/retry policy after service release")
     return value
 
 
 def main(argv=None):
     args = parser().parse_args(argv)
+    if args.bootstrap_backend_health and not args.release:
+        parser().error("--bootstrap-backend-health requires --release")
+    if args.physiology_scheduler_migration and not args.release:
+        parser().error("--physiology-scheduler-migration requires --release")
     if args.release and (args.public_repo != REPOSITORY or not args.message or not args.message.strip()):
         parser().error("--release requires --public-repo limux92/ai-coach and --message TITLE")
     os.umask(0o077)

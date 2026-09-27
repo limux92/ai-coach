@@ -21,9 +21,9 @@ from .normalize import (
 )
 
 logger = logging.getLogger("ai_coach")
-RUN_BUDGET_SECONDS = 720
+RUN_BUDGET_SECONDS = 240
 MAX_PARSE_ATTEMPTS = 3
-RECENT_DAYS = 14
+RECENT_DAYS = 42
 MAX_INLINE_LAPS = 200
 UPLOAD_VERIFICATION_VERSION = 1
 OVERSIZE_INSPECTION_VERSION = 1
@@ -87,10 +87,14 @@ class _Importer:
         )}
         self.activity_docs = {}
         self.missing_checks = 0
+        self.last_lease_check = 0.0
 
     def check_budget(self):
         if time.monotonic() >= self.deadline:
             raise SyncBudgetExceeded()
+        if hasattr(self.store, "assert_sync_lease") and time.monotonic() - self.last_lease_check > 5:
+            self.store.assert_sync_lease(self.state.get("lease_owner"))
+            self.last_lease_check = time.monotonic()
 
     def error(self, stage, exc):
         self.counts["errors"] += 1
@@ -99,7 +103,7 @@ class _Importer:
                                 "retryable": getattr(exc, "retryable", False)})
         if isinstance(exc, IntervalsError) and exc.status_code in (401, 403):
             raise exc
-        if isinstance(exc, IntervalsError) and exc.code in ("rate_limited", "deadline_exceeded"):
+        if isinstance(exc, IntervalsError) and exc.code in ("rate_limited", "deadline_exceeded", "request_budget_exhausted"):
             raise exc
         if isinstance(exc, SyncBudgetExceeded):
             raise exc
@@ -482,6 +486,33 @@ class _Importer:
                     complete = False
         return complete
 
+    def discover(self, today):
+        """Discover old-dated new uploads without downloading unchanged history."""
+        if not hasattr(self.client, "activity_index"):
+            return False  # Offline/legacy client cannot certify full-history discovery.
+        index = self.client.activity_index(date.fromisoformat(self.settings.history_start_date), today)
+        known_ids = set()
+        for collection in ("workouts", "activity_discovery"):
+            cursor = None
+            while True:
+                self.check_budget()
+                page = self.store.scan(collection, limit=500, after=cursor)
+                known_ids.update(row["id"] for row in page)
+                if len(page) < 500:
+                    break
+                if cursor == page[-1]["id"]:
+                    raise ValueError("Discovery pagination did not advance")
+                cursor = page[-1]["id"]
+        for row in index:
+            self.check_budget()
+            doc_id = source_document_id(row["id"])
+            if doc_id in known_ids:
+                continue
+            detail = self.client.get_activity(str(row["id"]))
+            if self.activity(detail):
+                self.store.put("activity_discovery", doc_id, {"id": doc_id, "seen": True})
+        return True
+
     def plans(self, today):
         self.check_budget()
         complete = True
@@ -547,8 +578,11 @@ def run_sync(store, settings, *, backfill=True, client=None):
     try:
         state = store.get("sync_state", "intervals") or {}
         if client is None:
+            from .upstream_budget import RequestBudget
+            budget = RequestBudget(store, settings.intervals_budget_pool, limit=settings.intervals_requests_per_run)
             client = IntervalsClient(os.environ["INTERVALS_API_KEY"], settings.athlete_id,
-                                     deadline_monotonic=deadline)
+                                     deadline_monotonic=deadline, reserve_request=budget.reserve,
+                                     observe_response=budget.observe, min_request_interval_seconds=0.2)
         importer = _Importer(store, settings, client, deadline, state)
         store.put("sync_state", "intervals", {"last_attempt_at": started})
         importer.identify()
@@ -556,6 +590,9 @@ def run_sync(store, settings, *, backfill=True, client=None):
         athlete_timezone = ZoneInfo(settings.timezone)
         today = datetime.now(athlete_timezone).date()
         recent_oldest = today - timedelta(days=RECENT_DAYS - 1)
+        if state.get("backfill_scope_start") not in (None, settings.history_start_date):
+            state = {**state, "backfill_complete": False, "backfill_cursor": (recent_oldest - timedelta(days=1)).isoformat()}
+            updates.update(backfill_complete=False, backfill_cursor=state["backfill_cursor"], backfill_scope_start=settings.history_start_date)
         # Recover every day since the last fully imported refresh. A fixed
         # lookback would permanently miss workouts after an outage >14 days
         # once the initial historical backfill has already finished.
@@ -567,6 +604,13 @@ def run_sync(store, settings, *, backfill=True, client=None):
         recent_complete = importer.range(recent_oldest, today)
         if recent_complete:
             updates["last_success_at"] = now()
+            updates.update(recent_coverage_oldest=recent_oldest.isoformat(), recent_coverage_newest=today.isoformat(),
+                           recent_coverage_at=now())
+        try:
+            if importer.discover(today):
+                updates["last_discovery_success_at"] = now()
+        except Exception as exc:
+            importer.error("activity_discovery", exc)
         last_plans = state.get("last_plans_success_at")
         if last_plans is not None:
             last_plans = _aware_timestamp(last_plans)
@@ -588,6 +632,7 @@ def run_sync(store, settings, *, backfill=True, client=None):
                                        (recent_oldest - timedelta(days=1)).isoformat())
             if cursor < floor:
                 updates["backfill_complete"] = True
+                updates["backfill_scope_start"] = settings.history_start_date
             else:
                 oldest = max(floor, cursor - timedelta(days=30))
                 complete = importer.range(oldest, cursor)
@@ -596,6 +641,7 @@ def run_sync(store, settings, *, backfill=True, client=None):
                 if complete:
                     updates["backfill_cursor"] = oldest.isoformat()
                     updates["backfill_complete"] = oldest == floor
+                    updates["backfill_scope_start"] = settings.history_start_date
                     updates["last_backfill_success_at"] = now()
         if backfill and state.get("backfill_complete"):
             importer.check_budget()
@@ -616,6 +662,12 @@ def run_sync(store, settings, *, backfill=True, client=None):
             importer.counts["summaries_updated"] = summary_result["updated"]
         except Exception as exc:
             importer.error("summary_refresh", exc)
+        store.put("sync_state", "intervals", updates)
+        try:
+            from .physiology_service import refresh_physiology
+            refresh_physiology(store, settings, check_budget=importer.check_budget, lease_owner=run_id)
+        except Exception as exc:
+            importer.error("physiology_refresh", exc)
         status = "partial" if importer.errors else \
             ("ok_with_warnings" if importer.counts["parse_terminal"] or importer.warnings else "ok")
         result = {"status": status, "run_id": run_id, "counts": importer.counts,

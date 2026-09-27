@@ -13,6 +13,7 @@ import { addDays, monthStart, monthEnd, monday, calendarDays, localToday } from 
 import { brand } from './ui.js';
 import { createApi } from './api.js';
 import { createWorkoutController } from './workout-controller.js';
+import { createQuickWorkoutController } from './quick-workout.js';
 import { bindEvents } from './events.js';
 import { shell as renderShell } from './views/shell.js';
 import { loginScreen as renderLogin } from './views/login.js';
@@ -37,7 +38,7 @@ const state = {
 };
 let auth, config, activeController;
 
-const { api, fetchPages } = createApi(() => auth);
+const { api, fetchPages, post } = createApi(() => auth);
 const { openDrawer, loadSamples, closeDrawer, renderDrawer } = createWorkoutController(
   state,
   drawerRoot,
@@ -46,6 +47,7 @@ const { openDrawer, loadSamples, closeDrawer, renderDrawer } = createWorkoutCont
 const shell = () => {
   root.innerHTML = renderShell(state, config);
 };
+const quickWorkout = createQuickWorkoutController(state, post, shell);
 const loginScreen = (message) => {
   root.innerHTML = renderLogin(message);
 };
@@ -98,6 +100,7 @@ async function signIn() {
 }
 
 function clearSession() {
+  quickWorkout.cancel();
   ++state.request;
   activeController?.abort();
   state.workouts = [];
@@ -146,6 +149,7 @@ async function boot() {
 
 bindEvents(state, drawerRoot, {
   signIn,
+  quickWorkout: quickWorkout.generate,
   clearSession,
   logout: () => signOut(auth),
   closeDrawer,

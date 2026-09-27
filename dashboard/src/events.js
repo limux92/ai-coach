@@ -3,6 +3,7 @@ import { addDays, monthStart, shiftMonth, monday } from './data.js';
 export function bindEvents(state, drawerRoot, actions) {
   const {
     signIn,
+    quickWorkout,
     clearSession,
     logout,
     closeDrawer,
@@ -16,6 +17,7 @@ export function bindEvents(state, drawerRoot, actions) {
     const target = event.target.closest('button, [data-action]');
     if (!target) return;
     const action = target.dataset.action;
+    if (action === 'quick-workout') return void quickWorkout(target.dataset.format || 'zwo');
     if (action === 'login') return void signIn();
     if (action === 'logout') {
       clearSession();

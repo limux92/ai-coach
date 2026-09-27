@@ -116,6 +116,9 @@ class IntervalsClient:
         deadline_monotonic: float | None = None,
         transport: httpx.BaseTransport | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        reserve_request: Callable[[], None] | None = None,
+        observe_response: Callable[..., None] | None = None,
+        min_request_interval_seconds: float = 0,
     ) -> None:
         if not api_key or api_key != api_key.strip() or "\n" in api_key:
             raise ValueError("A valid Intervals API key is required")
@@ -130,6 +133,8 @@ class IntervalsClient:
         self.deadline_monotonic = deadline_monotonic
         self.timeout_seconds = timeout_seconds
         self._sleep = sleep
+        self._reserve_request, self._observe_response = reserve_request, observe_response
+        self._min_interval, self._last_request = min_request_interval_seconds, None
         self._client = httpx.Client(
             base_url=self.BASE_URL,
             auth=httpx.BasicAuth("API_KEY", api_key),
@@ -179,7 +184,14 @@ class IntervalsClient:
         if path.startswith("/") or ":" in path or ".." in path:
             raise ValueError("Invalid relative API path")
         for attempt in range(self.max_attempts):
+            if self._last_request is not None and self._min_interval:
+                delay = max(0, self._min_interval - (time.monotonic() - self._last_request))
+                if delay:
+                    self._sleep(delay)
+            if self._reserve_request:
+                self._reserve_request()
             remaining = self._remaining()
+            self._last_request = time.monotonic()
             request_timeout = self.timeout_seconds if remaining is None else min(self.timeout_seconds, remaining)
             try:
                 request_headers = {"Accept": "*/*", "Accept-Encoding": "identity"} if raw else None
@@ -188,6 +200,8 @@ class IntervalsClient:
                     timeout=httpx.Timeout(request_timeout, connect=min(10, request_timeout)),
                 ) as response:
                     status = response.status_code
+                    if self._observe_response:
+                        self._observe_response(response.headers, status, self._retry_after(response.headers))
                     if status >= 300:
                         retryable = status == 429 or status == 408 or status >= 500
                         code = ("authentication" if status in (401, 403) else
@@ -263,6 +277,21 @@ class IntervalsClient:
     def list_activities(self, oldest: date | str, newest: date | str) -> list[dict[str, Any]]:
         """All summaries in the range. Call is_direct_garmin BEFORE archiving."""
         return self._list_range("activities", oldest, newest)
+
+    def activity_index(self, oldest: date | str, newest: date | str):
+        """One bounded lightweight full-history listing, including late uploads.
+
+        Official OpenAPI supports fields and limit. Request cap+1 and refuse to
+        declare discovery complete at the cap; never use a truncated index for deletion.
+        """
+        result = self._json(f"athlete/{self.athlete_id}/activities", params={
+            "oldest": _date(oldest).isoformat(), "newest": _date(newest).isoformat(),
+            "fields": "id,start_date_local", "limit": 20001})
+        if not isinstance(result, list) or any(not isinstance(r, dict) or not r.get("id") for r in result):
+            raise IntervalsError("unexpected_response_shape")
+        if len(result) >= 20001:
+            raise IntervalsError("discovery_limit_exceeded", retryable=True)
+        return result
 
     def get_activity(self, activity_id: str) -> dict[str, Any]:
         return self._object(f"activity/{_identifier(activity_id)}", params={"intervals": "true"})

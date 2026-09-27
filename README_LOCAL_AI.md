@@ -1,9 +1,14 @@
 # AI Coach — local AI handoff
 
-Updated 23 September 2026. Work only in AI-Coach, not JustInterval. Inspect Git
+Updated 25 September 2026. Work only in AI-Coach, not JustInterval. Inspect Git
 status before changes; the application uses Firebase Google sign-in.
-Never print or send `.local/`, credentials or personal training data to a model.
-For a compact new-conversation handoff, read `README_CURRENT_CONTEXT.md` first.
+Never print or send private `.local/` artifacts, credentials or personal training
+data to a model. The deliberately curated `.local/worker/context.md` memo is the
+only automatic exception: new harness jobs include its bounded snapshot.
+For a new-conversation handoff, read [README_CURRENT_CONTEXT.md](README_CURRENT_CONTEXT.md)
+first. It separates the verified ChatGPT OAuth repair from the locally implemented
+Garmin/OpenAI feature and links the private receipts and next steps. This runbook
+documents commands; it does not replace that current-state handoff.
 
 ## Architecture
 
@@ -17,7 +22,19 @@ See [Firebase runbook](docs/FIREBASE_AUTH.md), [infrastructure](infra/README.md)
 [summary semantics](docs/COMPUTED_SUMMARIES.md) and [chat setup](docs/CHAT_CONNECTION.md).
 Retired identity-provider helpers are removed; use the Firebase runbook.
 
-## Codex architect, local GPT-oss worker
+## Codex coordinator, GPT-oss and Gemini workers
+
+The [bounded task harness](docs/HARNESS.md) adds saved task briefs, source
+fingerprints, bounded attempts, and separate review/completion records
+around the existing local worker. Use VS Code **Tasks: Run Task** and select an
+`AI-Coach:` task. The private routing report is `.local/worker/harness.html`;
+its workload link shows measured worker usage and Codex stages.
+Gemini reviews now run through Antigravity in a fresh task workspace, with an
+exact-source read hook, deadline and failure checks. Use **Create Gemini review**
+then **Run worker job**. Codex retains the user conversation and verifies results.
+**Harness status** includes saved deployment failures; worker prose cannot complete
+a release. Nothing resumes automatically when quota refreshes. See the harness
+guide for permissions, evidence and the separate deployment approval boundary.
 
 `gpt-oss:20b` is the sole installed local worker. Codex analyzes and divides work,
 provides acceptance criteria, reviews the generated code, and runs focused checks.
@@ -75,6 +92,20 @@ and drafts for review. It does not edit or run code. Select that agent with
 `gpt-oss:20b` and start a fresh chat for each small task, attaching only the
 relevant source file. The editor adds instructions, conversation history, tool
 definitions and tool results, so Chat can use more context than the helper.
+
+Use the official Ollama extension (`ollama.ollama`, provider `ollama-models`).
+The agent's model selector is `gpt-oss:20b (ollama-models)`. The older built-in
+`ollama` provider is deprecated; remove or migrate its entry in VS Code's user
+`chatLanguageModels.json` so the two providers do not offer duplicate models.
+
+If Chat says "Sorry, no response was returned", check the Copilot and Ollama
+logs before increasing limits. A full input context can leave no room for an
+answer: on 25 September, a 16,366-token prompt filled almost all of the 16,384
+available tokens and ended with `finish reason: [length]`. The official
+extension version 0.0.9 reads the model's `num_ctx` and reserves 4,096 tokens
+for output when advertising its input limit. After changing providers, run
+`Ollama: Refresh Models` and start a new Chat session; do not retry the full
+`/create-agent` conversation. Select `AI-Coach Local` to use the existing agent.
 
 On this machine, the model defaults were reduced from 65,536 to 16,384 context
 tokens, with 2,048 output tokens and temperature 0.2. The helper independently
@@ -158,7 +189,7 @@ See [deployment instructions](docs/DEPLOYMENT.md) and the
 AI-Coach Local chat and `local_worker.py` cannot execute commands; use a
 terminal-capable agent or paste the command. Release receipts stay private in
 `.local/releases/`. Infrastructure provisioning/configuration changes still need
-separate review. Private backend probes call only the static `/healthz` route.
+separate review. Private backend probes call only the static `/health` route.
 
 ## Operations
 

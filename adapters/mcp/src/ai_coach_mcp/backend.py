@@ -14,7 +14,11 @@ from .config import Settings
 
 logger = logging.getLogger("ai_coach_mcp")
 MAX_RESPONSE_BYTES = 64_000
-ALLOWED_ROUTES = re.compile(r"/v1/(?:context|summaries|status|workouts|planned-workouts|wellness|dashboard/(?:workouts|planned-workouts|workouts/[a-zA-Z0-9_.-]{1,180})|workouts/[a-zA-Z0-9_.-]{1,180}(?:/samples)?)\Z")
+ALLOWED_ROUTES = re.compile(
+    r"/v1/(?:context|summaries|status|workouts|planned-workouts|wellness|"
+    r"physiology/(?:sessions|models/[a-zA-Z0-9_.-]{1,180}|analyses/[a-zA-Z0-9_.-]{1,180}(?:/events)?)|"
+    r"dashboard/(?:workouts|planned-workouts|workouts/[a-zA-Z0-9_.-]{1,180})|"
+    r"workouts/[a-zA-Z0-9_.-]{1,180}(?:/samples|/physiology)?)\Z")
 
 
 class BackendError(Exception):

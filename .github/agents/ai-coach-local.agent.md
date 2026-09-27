@@ -1,7 +1,7 @@
 ---
 name: AI-Coach Local
 description: Read AI-Coach source and draft answers locally with GPT-oss.
-model: gpt-oss:20b (ollama)
+model: gpt-oss:20b (ollama-models)
 tools: ['read/readFile', 'search/fileSearch', 'search/textSearch']
 user-invocable: true
 disable-model-invocation: true

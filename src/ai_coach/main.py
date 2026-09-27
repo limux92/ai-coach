@@ -43,6 +43,10 @@ def store():
     return Store(settings())
 
 
+from .physiology_api import router as physiology_router
+app.include_router(physiology_router(lambda: store(), lambda: settings()))
+
+
 class SyncRequest(BaseModel):
     backfill: bool = True
 
@@ -68,7 +72,8 @@ class PlannedWorkout(BaseModel):
         return self
 
 
-@app.get("/healthz")
+@app.get("/health")
+@app.get("/healthz", include_in_schema=False)
 def healthz():
     return {"service": "ai-coach-data", "status": "ok", "version": "0.1.0"}
 

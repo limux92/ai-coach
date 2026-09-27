@@ -90,14 +90,19 @@ def identity_token():
     return result.stdout.strip()
 
 
-def probe_backend(origin):
-    """Only /healthz: no status/database/workout routes or sync triggers."""
+def probe_backend(origin, *, allow_missing_health=False):
+    """Only static /health; candidates and production never allow a missing route."""
     url = urlsplit(origin)
     require(url.scheme == "https" and bool(url.hostname) and url.hostname.endswith(".run.app")
             and not url.path and not url.query and not url.fragment and not url.username and not url.password,
             "Unexpected private health origin.")
-    require(http(origin + "/healthz").status == 403, "Backend must deny anonymous access.")
-    response = http(origin + "/healthz", headers={"Authorization": "Bearer " + identity_token()})
+    require(http(origin + "/health").status == 403, "Backend must deny anonymous access.")
+    response = http(origin + "/health", headers={"Authorization": "Bearer " + identity_token()})
+    if allow_missing_health and response.status == 404:
+        # Only the application's exact missing-route response qualifies, not a
+        # Google frontend 404, denied invocation, timeout or unhealthy container.
+        require(response.body == b'{"detail":"Not Found"}', "Unexpected missing-health response.")
+        return "missing-route"
     require(response.status == 200, "Existing operator lacks backend invocation access, or backend health failed.")
     try:
         body = json.loads(response.body)
@@ -107,6 +112,7 @@ def probe_backend(origin):
             and body["service"] == "ai-coach-data" and body["status"] == "ok"
             and isinstance(body["version"], str) and 0 < len(body["version"]) <= 64,
             "Private backend static health response is not the expected service.")
+    return "healthy"
 
 
 def probe_gateway(settings, origin, assets, *, production=False):

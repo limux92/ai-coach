@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import PurePosixPath
 import time
 
@@ -10,6 +11,8 @@ REMOTE_URLS = {f"https://github.com/{REPOSITORY}.git", f"git@github.com:{REPOSIT
 CHECK_NAMES = {"Backend tests", "MCP adapter tests", "Dashboard tests and build", "Scan Git history for secrets"}
 PRIVATE_PARTS = {".local", ".tools", ".venv", "node_modules", "data", "exports", "credentials"}
 PRIVATE_SUFFIXES = {".fit", ".tcx", ".gpx", ".db", ".sqlite", ".sqlite3", ".pem", ".key", ".p12", ".log"}
+# Separately reviewed Scheduler-only diff against origin/main, 27 September 2026.
+PHYSIOLOGY_INFRA_DIFF = "4244840140567c8e80928efb46c19dce96fd3376be169475cc4f271657886d50"
 
 
 class ReleaseError(RuntimeError):
@@ -33,9 +36,14 @@ def validate_paths(paths):
                 f"Private/generated path cannot be published: {name}")
 
 
-def routine_scope(paths):
-    require(not any(p.startswith("infra/") for p in paths),
-            "Infrastructure changes need separate review; this command updates existing backend and gateway code.")
+def routine_scope(paths, *, physiology_migration=False, infra_diff_sha256=None):
+    infrastructure = sorted(p for p in paths if p.startswith("infra/"))
+    if physiology_migration:
+        require(infrastructure == ["infra/deploy.py"] and infra_diff_sha256 == PHYSIOLOGY_INFRA_DIFF,
+                "Scheduler migration must match the exact separately reviewed infrastructure diff.")
+    else:
+        require(not infrastructure,
+                "Infrastructure changes need separate review; this command updates existing backend and gateway code.")
 
 
 def ci_complete(checks):
@@ -97,11 +105,17 @@ class GitRelease:
                 "Workspace changed during release. Review and rerun.")
         require(self.fingerprint() == tree, "Staged source changed during checks. Run the checks again.")
 
-    def prepare(self):
+    def prepare(self, *, physiology_migration=False):
         self.git("fetch", "origin", "main")
         self.git("merge-base", "--is-ancestor", "origin/main", "HEAD")
         paths = self.paths("diff", "--name-only", "origin/main")
-        routine_scope(paths)
+        digest = None
+        if physiology_migration:
+            patch = self.git("diff", "--binary", "--full-index", "origin/main", "--", "infra/") + "\n"
+            digest = hashlib.sha256(patch.encode()).hexdigest()
+        routine_scope(paths, physiology_migration=physiology_migration, infra_diff_sha256=digest)
+        if physiology_migration:
+            self.receipt["reviewed_infra_diff_sha256"] = digest
         self.receipt["publication_files"] = paths
         (self.run.directory / "publication-files.json").write_text(json.dumps(paths, indent=2) + "\n")
         print("Publication scope (including existing local commits):", flush=True)

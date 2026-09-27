@@ -3,12 +3,19 @@
 Conserve hosted model tokens. Keep explanations practical and concise, and avoid
 repeated approval questions for work already authorized.
 
-## Codex architect, GPT-oss worker
+On a fresh conversation, read `README_CURRENT_CONTEXT.md` and the local handoff it
+references before investigating prior work. Preserve staged, unstaged and untracked
+changes. Keep the coordinator handoff current after meaningful verified outcomes;
+the smaller worker memo below serves a different audience and must stay bounded.
+
+## Codex design, GPT-oss code, Gemini infrastructure
 
 The sole local worker is `gpt-oss:20b` through `scripts/local_worker.py`.
-Codex analyzes the task, defines acceptance criteria, reviews the draft, and
-integrates the result. Delegate bounded implementation, debugging, refactoring,
-documentation, scripts, and test generation to the local worker.
+Codex owns design, architecture, integration review and final testing. Local GPT-oss
+owns bounded application code and unit-test drafts. Gemini/Antigravity owns
+infrastructure investigation, infrastructure changes and infrastructure testing.
+Keep each delegation bounded and report which agent actually completed it.
+Codex reviews drafts before integration; preserve the existing deployment approval boundary.
 
 Run GPT-oss task commands in VS Code's visible integrated terminal so Magne can
 see the prompt and follow progress. Use `scripts/local_worker.py` there and keep
@@ -35,6 +42,45 @@ credentials or personal training records in prompts. The helper produces drafts;
 it is not an autonomous editing or testing agent.
 
 Use `README_LOCAL_AI.md` for the stack, commands, and operational boundaries.
+
+## Bounded task routing
+
+For new delegated work, prefer `scripts/harness.py` and `docs/HARNESS.md`.
+Codex creates a job with one tracked source selection, a goal and acceptance
+criteria, then runs its ID in VS Code's visible integrated terminal. The runner
+calls the existing local worker; it does not replace the worker's limits.
+Classify architecture and final review as Codex work. Gemini may prepare and test
+infrastructure/IAM changes; security-sensitive access and release decisions remain
+with Codex and the user. Task labels are routing instructions, not semantic detection.
+
+The harness invokes Antigravity for bounded Gemini reviews/drafts in a fresh packet
+workspace with a task-local exact-source read hook. Run it visibly, inspect the saved
+result/tool evidence, and disclose failures. It does not execute infrastructure
+commands or deploy. Direct, explicitly scoped Antigravity infrastructure tasks stay
+separate. Never purchase credits, silently change models or schedule quota resumes.
+
+Keep the user conversation with Codex; workers receive only their bounded brief.
+Codex maintains `.local/worker/context.md` as a concise worker-safe memo of the
+objective, decisions, verified state and open work (maximum 4000 UTF-8 bytes).
+New harness jobs freeze that memo into their brief for both workers; the combined
+12 KB input limit still applies. This curated memo is the only automatic exception
+to excluding `.local/` content from prompts. Never include secrets, private training
+data, raw transcripts or logs. Workers return results separately; only Codex merges
+verified findings into the memo. A memo is not permission to run commands.
+Read it on resumption and update it after reviewed outcomes. When it changes scope
+or records a revoked authorization, stop/reassess affected jobs; existing snapshots
+are intentionally immutable and are not updated automatically.
+On resumption and before a completion claim, inspect `scripts/harness.py status`
+and the relevant saved job/release evidence. A queue entry, worker SUCCESS, accepted
+draft or GitHub push does not prove deployment. Release completion requires the
+current successful `--release-receipt`; check live user-visible behavior separately.
+Report which worker actually ran, what it returned, and what Codex verified.
+
+Review a complete draft before applying it, recording `review --checks` evidence.
+Source or draft changes invalidate acceptance. Apply reviewed changes and run
+appropriate checks separately, then record `complete --checks` with the actual
+results. An accepted draft is not an applied or tested change. Preserve existing
+user edits; job files and reports remain ignored under `.local/worker/`.
 
 ## Lightweight frontend
 

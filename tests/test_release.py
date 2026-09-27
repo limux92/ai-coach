@@ -115,7 +115,7 @@ def test_check_failure_stops_before_github_or_cloud(monkeypatch, tmp_path):
     monkeypatch.setattr(release, "checks", fail_checks)
     monkeypatch.setattr(release.Runner, "__call__", lambda *a, **k: "")
     with pytest.raises(ReleaseError, match="local test failed"):
-        release.release(runner, git, SimpleNamespace(message="title"), "test")
+        release.release(runner, git, SimpleNamespace(message="title", bootstrap_backend_health=None), "test")
     assert not runner.receipt.get("commit")
     assert not runner.receipt.get("revision")
 
@@ -152,7 +152,7 @@ def test_failed_github_ci_never_builds_or_deploys_cloud(monkeypatch, tmp_path):
     monkeypatch.setattr(release.Runner, "__call__", lambda *a, **k: "")
     monkeypatch.setattr(cloud, "CloudRelease", lambda *a: SimpleNamespace(preflight=lambda: None))
     with pytest.raises(ReleaseError, match="GitHub CI failed"):
-        release.release(runner, git, SimpleNamespace(message="title"), "test")
+        release.release(runner, git, SimpleNamespace(message="title", bootstrap_backend_health=None), "test")
     assert not runner.receipt.get("revision")
 
 
