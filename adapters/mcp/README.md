@@ -54,3 +54,12 @@ Tests exercise real RSA signature verification and the OAuth endpoints, with
 mocked Google HTTP, synthetic records and a memory store. No training records or
 cloud writes are used. Build `dashboard/` before building the adapter image.
 The production adapter container uses Python 3.12.
+
+## Quick Workout
+
+The owner dashboard uses OpenAI for cycling/Zwift XML or running/Garmin FIT.
+Running warmup and cooldown end on LAP press; the main set is timed.
+The `render_quick_workout(plan)` and `render_running_workout(plan)` MCP tools also
+export chat-authored prescriptions without storing them or calling another model. Backend archive access remains
+read-only. See [Quick Workout](../../docs/QUICK_WORKOUT.md) for schemas, provider
+configuration, spending boundaries and remaining live acceptance.

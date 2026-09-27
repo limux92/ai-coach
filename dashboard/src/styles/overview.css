@@ -1,0 +1,380 @@
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.metric-card {
+  padding: 20px;
+}
+.metric-card.featured {
+  border-color: var(--blue);
+}
+.metric-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.metric-value {
+  margin: 16px 0 10px;
+  font-size: clamp(1.5rem, 2.8vw, 2.25rem);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.metric-value small {
+  margin-left: 5px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 400;
+}
+.metric-foot {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.charts-grid,
+.bottom-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(310px, 1fr);
+  gap: 20px;
+  margin-bottom: 20px;
+}
+.trend-chart {
+  height: 215px;
+  margin: 28px 22px 0;
+  position: relative;
+  padding-left: 36px;
+}
+.chart-scale {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 176px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.chart-scale span {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+.chart-scale i {
+  position: absolute;
+  left: 36px;
+  right: 0;
+  border-top: 1px dashed var(--line);
+}
+.chart-columns {
+  position: relative;
+  display: flex;
+  justify-content: space-around;
+  height: 206px;
+  gap: 10px;
+}
+.chart-column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.bar-space {
+  height: 176px;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.stacked-bar {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  width: 75%;
+  max-width: 28px;
+  min-width: 10px;
+  min-height: 1px;
+  border-radius: 4px 4px 0 0;
+  overflow: hidden;
+}
+.bar-part {
+  display: block;
+  width: 100%;
+  opacity: 0.75;
+}
+.stacked-bar.current .bar-part {
+  opacity: 1;
+}
+.bar-part.run {
+  background: var(--teal);
+}
+.bar-part.cycle {
+  background: var(--amber);
+}
+.bar-part.other {
+  background: var(--other);
+}
+.bar-label {
+  font-size: 0.65rem;
+  color: var(--muted);
+  margin-top: 10px;
+  white-space: nowrap;
+}
+.chart-legend {
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  margin: 0 18px 20px;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.chart-legend > span,
+.zone-context {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.chart-coverage {
+  padding: 0 22px 14px;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.zone-context,
+.zone-select-label {
+  margin: 20px 22px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.zone-select-label {
+  display: grid;
+  gap: 6px;
+}
+.zone-select-label select {
+  width: 100%;
+  padding: 7px;
+  background: var(--bg);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+.zone-bars {
+  display: grid;
+  gap: 13px;
+  padding: 0 22px;
+}
+.zone-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+.zone-label {
+  width: 20px;
+}
+.zone-range {
+  min-width: 55px;
+  color: var(--muted);
+}
+.zone-track {
+  flex: 1;
+  height: 7px;
+  background: var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.zone-fill {
+  display: block;
+  height: 100%;
+  background: var(--blue);
+}
+.zone-0 {
+  background: var(--muted);
+}
+.zone-1 {
+  background: var(--teal);
+}
+.zone-2 {
+  background: var(--blue);
+}
+.zone-3 {
+  background: var(--amber);
+}
+.zone-4,
+.zone-5,
+.zone-6 {
+  background: var(--danger);
+}
+.zone-row strong {
+  min-width: 48px;
+  text-align: right;
+  font-size: 0.75rem;
+}
+.chart-caption {
+  margin: 18px 22px;
+}
+.table-scroll {
+  overflow-x: auto;
+}
+.workout-table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 18px 0 8px;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+.workout-table th,
+.workout-table td {
+  padding: 12px 9px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+.workout-table th {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+.workout-table th:first-child,
+.workout-table td:first-child {
+  padding-left: 22px;
+}
+.workout-table tr:last-child td {
+  border-bottom: 0;
+}
+.workout-name {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.workout-name strong {
+  display: block;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.8rem;
+}
+.workout-name small {
+  display: block;
+  color: var(--muted);
+  margin-top: 3px;
+}
+.mini-calendar {
+  padding: 20px 22px;
+}
+.mini-weekdays,
+.mini-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  text-align: center;
+}
+.mini-weekdays {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+.mini-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 38px;
+  border: 0;
+  background: transparent;
+  border-radius: 5px;
+  font-size: 0.8rem;
+}
+.mini-day:hover {
+  background: var(--hover);
+}
+.mini-day.outside {
+  color: var(--muted);
+  opacity: 0.55;
+}
+.mini-day.is-today {
+  outline: 1px solid var(--blue);
+  outline-offset: -2px;
+}
+.mini-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+}
+.mini-dot.run {
+  background: var(--teal);
+}
+.mini-dot.cycle {
+  background: var(--amber);
+}
+.mini-dot.other {
+  background: var(--other);
+}
+.month-insight {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0 22px 20px;
+  padding-top: 15px;
+  border-top: 1px solid var(--line);
+}
+.month-insight strong {
+  font-size: 2rem;
+  color: var(--teal);
+}
+.month-insight span {
+  font-size: 0.8rem;
+}
+.month-insight small {
+  color: var(--muted);
+}
+@media (max-width: 1100px) {
+  .charts-grid,
+  .bottom-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 760px) {
+  .metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .metric-card {
+    padding: 16px;
+  }
+  .metric-value {
+    font-size: 1.7rem;
+  }
+  .metric-value small {
+    font-size: 0.75rem;
+  }
+  .workout-name strong {
+    max-width: 135px;
+  }
+  .workout-table td:nth-child(5),
+  .workout-table th:nth-child(5) {
+    display: none;
+  }
+}
+
+.quick-workout-panel {
+  padding: 1.25rem;
+  margin-block: 1rem;
+}
+.quick-workout-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+.quick-workout-panel p,
+.quick-workout-panel ul {
+  margin-block: 0.75rem;
+}

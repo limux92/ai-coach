@@ -27,7 +27,9 @@ def _read_tasks(directory):
 
 
 def _write_report(directory, tasks):
-    report = render_report(list(tasks.values()))
+    usage = directory / 'codex_usage.json'
+    turns = json.loads(usage.read_text()) if usage.exists() else []
+    report = render_report(list(tasks.values()), turns)
     with tempfile.NamedTemporaryFile(mode='w', dir=directory, delete=False, suffix='.html') as handle:
         handle.write(report)
         temporary = Path(handle.name)

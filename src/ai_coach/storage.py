@@ -6,11 +6,13 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from google.api_core.exceptions import PreconditionFailed
+from google.api_core.exceptions import AlreadyExists, PreconditionFailed
 from google.cloud import firestore, storage
 from google.cloud.firestore_v1.base_query import FieldFilter
 
 COLLECTIONS = {"workouts", "planned_workouts", "wellness", "observations", "sync_state", "sync_runs", "athletes", "schema", "training_summaries", "summary_jobs"}
+COLLECTIONS |= {"physiology_revisions", "physiology_jobs", "physiology_efforts", "physiology_models",
+                "physiology_analyses", "physiology_contexts", "upstream_budgets", "activity_discovery"}
 
 
 def utcnow():
@@ -50,6 +52,48 @@ class Store:
 
     def put(self, collection, doc_id, data, *, merge=True):
         self.ref(collection, doc_id).set(data, merge=merge)
+
+    def create(self, collection, doc_id, data):
+        """Create-only deterministic objects; never replace a historical result."""
+        try:
+            self.ref(collection, doc_id).create(data)
+        except AlreadyExists:
+            pass
+
+    def reserve_upstream_request(self, pool):
+        from .upstream_budget import reserve_state
+        ref = self.ref("upstream_budgets", pool)
+        @firestore.transactional
+        def reserve(transaction):
+            state = ref.get(transaction=transaction).to_dict() or {}
+            transaction.set(ref, reserve_state(state, utcnow()))
+        reserve(self.db.transaction())
+
+    def defer_upstream_requests(self, pool, until):
+        ref = self.ref("upstream_budgets", pool)
+        @firestore.transactional
+        def defer(transaction):
+            state = ref.get(transaction=transaction).to_dict() or {}
+            previous = state.get("cooldown_until")
+            transaction.set(ref, {"cooldown_until": max(previous, until) if previous else until}, merge=True)
+        defer(self.db.transaction())
+
+    def commit_workout_evidence(self, doc_id, data, *, merge=True):
+        from .physiology_evidence import merged_workout, transition
+        ref = self.ref("workouts", doc_id)
+        @firestore.transactional
+        def commit(transaction):
+            old = ref.get(transaction=transaction).to_dict() or {}
+            new = merged_workout(old, data, doc_id, merge)
+            revision = transition(old, new, known_at=firestore.SERVER_TIMESTAMP)
+            if revision:
+                transaction.create(self.ref("physiology_revisions", revision["id"]), revision)
+                transaction.create(self.ref("physiology_jobs", revision["id"]), {"id": revision["id"], "pending": True})
+                transaction.set(self.ref("sync_state", "physiology"), {"status": "pending"}, merge=True)
+                new.update(physiology_revision_id=revision["id"], physiology_evidence_sha256=revision["evidence_sha256"],
+                           physiology_revision_sequence=revision["sequence"])
+            transaction.set(ref, new)
+        commit(self.db.transaction())
 
     def list(self, collection, oldest, newest, *, limit=200, after=None):
         if collection not in COLLECTIONS:
@@ -111,6 +155,25 @@ class Store:
             transaction.set(ref, {"lease_owner": owner, "lease_expires_at": utcnow() + timedelta(seconds=seconds)}, merge=True)
             return True
         return acquire(self.db.transaction())
+
+    def assert_sync_lease(self, owner):
+        state = self.get("sync_state", "intervals") or {}
+        expires = state.get("lease_expires_at")
+        if not owner or state.get("lease_owner") != owner or not expires or expires <= utcnow():
+            raise RuntimeError("Sync lease ownership expired")
+
+    def put_if_sync_owner(self, collection, doc_id, data, owner, *, merge=True):
+        """Fence current physiology pointers against expired/replaced workers."""
+        lease = self.ref("sync_state", "intervals")
+        destination = self.ref(collection, doc_id)
+        @firestore.transactional
+        def publish(transaction):
+            state = lease.get(transaction=transaction).to_dict() or {}
+            expires = state.get("lease_expires_at")
+            if not owner or state.get("lease_owner") != owner or not expires or expires <= utcnow():
+                raise RuntimeError("Sync lease ownership expired")
+            transaction.set(destination, data, merge=merge)
+        publish(self.db.transaction())
 
     def release_lease(self, owner, updates):
         ref = self.ref("sync_state", "intervals")
