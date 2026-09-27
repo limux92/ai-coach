@@ -296,6 +296,43 @@ def test_asset_hash_mismatch_blocks_verification(monkeypatch):
                              "https://candidate.run.app", {"index.html": "expected"})
 
 
+@pytest.mark.parametrize("failure", [None, "asset", "config", "anonymous"])
+def test_production_checks_mcp_on_canonical_origin_and_dashboard_on_custom_domain(monkeypatch, failure):
+    import hashlib
+    settings = SimpleNamespace(public_url="https://canonical.run.app/mcp", firebase_project_id="test-project",
+                               firebase_api_key="public-browser-config")
+    calls = []
+    def http(url, **kwargs):
+        calls.append(url)
+        if url == "https://canonical.run.app/v1/health":
+            return health.Response(200, {}, b"healthy")
+        if url == health.DOMAIN + "/dashboard/index.html":
+            return health.Response(200, {}, b"wrong" if failure == "asset" else b"tested")
+        if url == health.DOMAIN + "/dashboard/config":
+            return health.Response(200, {}, json.dumps({"projectId": "wrong" if failure == "config" else "test-project",
+                                                        "apiKey": "public-browser-config"}).encode())
+        if url == health.DOMAIN + "/dashboard/api/status":
+            return health.Response(200 if failure == "anonymous" else 401, {}, b"")
+        if url == health.DOMAIN + "/":
+            return health.Response(302, {"location": "/dashboard/"}, b"")
+        if url == "https://www.aiworkoutbuilder.app/":
+            return health.Response(302, {"location": health.DOMAIN + "/"}, b"")
+        pytest.fail("Unexpected probe destination: " + url)
+    def adapter(settings, *, http):
+        assert http(settings.public_url.removesuffix("/mcp") + "/v1/health").status == 200
+    monkeypatch.setattr(health, "http", http)
+    monkeypatch.setattr(health, "probe_adapter", adapter)
+    def probe():
+        health.probe_gateway(settings, health.DOMAIN, {"index.html": hashlib.sha256(b"tested").hexdigest()}, production=True)
+    if failure:
+        with pytest.raises(ReleaseError):
+            probe()
+    else:
+        probe()
+        assert health.DOMAIN + "/dashboard/api/status" in calls
+        assert "https://canonical.run.app/v1/health" in calls
+
+
 @pytest.mark.parametrize("allocation", [{}, {"a": True}, {"a": 99}, {"A": 100}, {"a": "100"}, {"a": 101}, {"a": 0}])
 def test_worker_traffic_formatter_rejects_invalid_allocations(allocation):
     with pytest.raises(ValueError):

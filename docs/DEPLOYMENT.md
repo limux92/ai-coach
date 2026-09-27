@@ -146,6 +146,10 @@ Cloud login solely for `/health`, whose response is static, following
 memory and is never written to the release logs. It also checks that anonymous
 requests are denied. No authenticated `/v1/status`, workout, database or sync
 routes are called. Gateway probes use no owner credentials.
+Production MCP/OAuth and adapter health are checked on the canonical `run.app`
+origin. Firebase Hosting forwards only `/dashboard`, so the custom domain is
+checked separately for matching assets/configuration, denied anonymous dashboard
+API access and its redirects. Release probes must not assume it forwards MCP routes.
 
 A successful release proves both serving revisions, static backend health,
 public deployment and the listed guards. It does **not** prove fresh owner

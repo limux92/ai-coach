@@ -117,14 +117,28 @@ def probe_backend(origin, *, allow_missing_health=False):
 
 def probe_gateway(settings, origin, assets, *, production=False):
     canonical = settings.public_url.removesuffix("/mcp")
+    # Firebase Hosting forwards only /dashboard. MCP/OAuth and adapter health
+    # remain on the configured run.app origin, including after promotion.
+    adapter_origin = canonical if production else origin
     def route(url, **kwargs):
-        return http(origin + url.removeprefix(canonical), **kwargs)
+        return http(adapter_origin + url.removeprefix(canonical), **kwargs)
     probe_adapter(settings, http=route)
     for path, digest in assets.items():
         response = http(origin + "/dashboard/" + path)
         require(response.status == 200 and hashlib.sha256(response.body).hexdigest() == digest,
                 "Published dashboard asset does not match tested build: " + path)
     if production:
+        config = http(origin + "/dashboard/config")
+        try:
+            dashboard = json.loads(config.body)
+        except (ValueError, UnicodeError):
+            raise ReleaseError("Custom-domain dashboard configuration is invalid JSON.") from None
+        require(config.status == 200 and isinstance(dashboard, dict)
+                and dashboard.get("projectId") == settings.firebase_project_id
+                and dashboard.get("apiKey") == settings.firebase_api_key,
+                "Custom-domain dashboard configuration does not match deployment.")
+        require(http(origin + "/dashboard/api/status").status == 401,
+                "Custom-domain dashboard must deny anonymous data access.")
         root = http(DOMAIN + "/")
         require(root.status in {301, 302, 307, 308} and root.headers.get("location", "").endswith("/dashboard/"),
                 "Primary domain dashboard redirect failed.")
