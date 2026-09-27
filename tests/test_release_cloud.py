@@ -222,6 +222,65 @@ def test_migration_requires_exact_revision_and_candidates_remain_strict(monkeypa
     assert calls[1:] == [("https://candidate.run.app", {}), (cloud.BACKEND_URL, {})]
 
 
+def failed_backend(fake):
+    revision = cloud.BACKEND_SERVICE + "-r-abcdef12-260927-061340-af98"
+    status = fake.state[cloud.BACKEND_SERVICE]["status"]
+    status["latestCreatedRevisionName"] = revision
+    status["conditions"] = [{"type": "Ready", "status": "False", "reason": "HealthCheckContainerError"}]
+    documents = {}
+    for name in (revision, status["latestReadyRevisionName"]):
+        documents[name] = {"metadata": {"name": name, "labels": {"serving.knative.dev/service": cloud.BACKEND_SERVICE}},
+                           "status": {"conditions": [{"type": "Ready", "status": "False" if name == revision else "True",
+                                                      "reason": "HealthCheckContainerError" if name == revision else ""}]}}
+    fake.subject.document = lambda *args: documents[args[3]]
+    return revision, documents
+
+
+def test_explicit_failed_candidate_recovery_retains_health_iam_and_gateway_gates(monkeypatch):
+    fake = FakeCloud(monkeypatch)
+    revision, _ = failed_backend(fake)
+    calls = []
+    monkeypatch.setattr(cloud, "probe_backend", lambda *a, **k: calls.append((a, k)))
+    with pytest.raises(ReleaseError, match="not ready"):
+        fake.subject.preflight()
+    fake.subject.preflight(recover_failed_backend_candidate=revision)
+    assert calls == [((cloud.BACKEND_URL,), {})]
+    assert fake.subject.receipt["failed_backend_candidate_recovery"]["serving_ready_verified"]
+    fake.state[cloud.SERVICE]["status"]["conditions"][0]["status"] = "False"
+    with pytest.raises(ReleaseError, match="not ready"):
+        fake.subject.preflight(recover_failed_backend_candidate=revision)
+    fake.state[cloud.SERVICE]["status"]["conditions"][0]["status"] = "True"
+    fake.state[cloud.BACKEND_SERVICE + "-iam"]["bindings"][0]["members"].append("allUsers")
+    with pytest.raises(ReleaseError, match="public IAM"):
+        fake.subject.preflight(recover_failed_backend_candidate=revision)
+
+
+@pytest.mark.parametrize("change", ["wrong-name", "wrong-latest", "traffic", "old-unready", "wrong-service",
+                                    "unknown-failure", "failed-ready", "service-unknown"])
+def test_failed_candidate_recovery_rejects_unverified_state(monkeypatch, change):
+    fake = FakeCloud(monkeypatch)
+    revision, documents = failed_backend(fake)
+    status = fake.state[cloud.BACKEND_SERVICE]["status"]
+    if change == "wrong-name":
+        revision = "some-other-revision"
+    elif change == "wrong-latest":
+        status["latestCreatedRevisionName"] = "other"
+    elif change == "traffic":
+        status["traffic"] = [{"revisionName": revision, "percent": 100}]
+    elif change == "old-unready":
+        documents[status["latestReadyRevisionName"]]["status"]["conditions"][0]["status"] = "False"
+    elif change == "wrong-service":
+        documents[revision]["metadata"]["labels"]["serving.knative.dev/service"] = "other"
+    elif change == "unknown-failure":
+        documents[revision]["status"]["conditions"][0]["reason"] = "other"
+    elif change == "failed-ready":
+        documents[revision]["status"]["conditions"][0]["status"] = "True"
+    else:
+        status["conditions"][0]["status"] = "Unknown"
+    with pytest.raises(ReleaseError):
+        fake.subject.preflight(recover_failed_backend_candidate=revision)
+
+
 def test_token_failure_does_not_expose_provider_output(monkeypatch, capsys):
     monkeypatch.setattr(health.subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=1, stdout="", stderr="PRIVATE"))
     with pytest.raises(ReleaseError) as error:

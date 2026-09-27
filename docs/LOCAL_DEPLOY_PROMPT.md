@@ -25,6 +25,12 @@ For the separately reviewed physiology Scheduler change, also include
 infrastructure diff and applies the narrow existing-job retry/deadline migration.
 It cannot authorize unrelated infrastructure edits or IAM changes.
 
+For a diagnosed and fixed zero-traffic backend startup failure, Codex can review
+`--recover-failed-backend-candidate EXACT_FAILED_REVISION`. This requires the exact
+latest failed candidate and a directly verified ready previous revision at 100%
+traffic. All normal health, IAM and promotion gates still apply. It is not an
+automatic retry instruction for the worker; inspect the failure before use.
+
 The path choice is also documented in Google's
 [Scion Cloud Run deployment guide](https://googlecloudplatform.github.io/scion/hosted/ha/setup-gcp/#3f-verify-hub-health).
 

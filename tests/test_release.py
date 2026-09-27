@@ -172,6 +172,40 @@ def test_candidate_bundle_rejects_changed_build_assets(tmp_path, monkeypatch):
         release.bundle(SimpleNamespace(directory=directory), git, "sha", {"index.html": hashlib.sha256(b"tested").hexdigest()})
 
 
+def test_bundle_nonroot_permissions_preserve_private_receipts(tmp_path, monkeypatch):
+    import hashlib
+    import os
+    import stat
+    import zipfile
+    assets = tmp_path / "adapters/mcp/static/dashboard"
+    assets.mkdir(parents=True)
+    (assets / "index.html").write_bytes(b"tested")
+    monkeypatch.setattr(release, "ROOT", tmp_path)
+    previous = os.umask(0o077)
+    try:
+        directory = tmp_path / "private-receipt"
+        directory.mkdir()
+        (directory / "private.log").write_text("private")
+        with zipfile.ZipFile(directory / "source.zip", "w") as archive:
+            archive.writestr("src/ai_coach/main.py", "app = object()\n")
+            archive.writestr("adapters/mcp/Dockerfile", "FROM scratch\n")
+            executable = zipfile.ZipInfo("scripts/gcloud")
+            executable.external_attr = 0o100755 << 16
+            archive.writestr(executable, "#!/bin/sh\n")
+        paths = release.bundle(SimpleNamespace(directory=directory), SimpleNamespace(git=lambda *a: None),
+                               "sha", {"index.html": hashlib.sha256(b"tested").hexdigest()})
+        source = paths["ai-coach-sync"]
+        assert stat.S_IMODE(source.stat().st_mode) == 0o755
+        assert all(stat.S_IMODE(p.stat().st_mode) == 0o755 for p in source.rglob("*") if p.is_dir())
+        assert stat.S_IMODE((source / "src/ai_coach/main.py").stat().st_mode) == 0o644
+        assert stat.S_IMODE((source / "scripts/gcloud").stat().st_mode) == 0o755
+        assert stat.S_IMODE((paths["ai-coach-chat"] / "static/dashboard/index.html").stat().st_mode) == 0o644
+        assert stat.S_IMODE(directory.stat().st_mode) == 0o700
+        assert stat.S_IMODE((directory / "private.log").stat().st_mode) == 0o600
+    finally:
+        os.umask(previous)
+
+
 def test_missing_firebase_receipt_has_actionable_error(monkeypatch):
     def missing(path):
         raise cloud.DeploymentError("Read a valid private Firebase configuration receipt")

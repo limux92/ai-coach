@@ -70,14 +70,44 @@ class CloudRelease:
         self.run.save()
         print(stage, flush=True)
 
-    def preflight(self, *, bootstrap_backend_health=None):
+    def recover_failed_backend(self, service, revision):
+        """Validate a named zero-traffic startup failure, not a production outage."""
+        status = service["status"]
+        require(bool(re.fullmatch(BACKEND_SERVICE + r"-r-[0-9a-f]{8}-\d{6}-\d{6}-[0-9a-f]{4}", revision))
+                and status.get("latestCreatedRevisionName") == revision,
+                "Recovery must name the exact latest failed backend release candidate.")
+        ready = [c for c in status.get("conditions", []) if c["type"] == "Ready"]
+        require(len(ready) == 1 and ready[0].get("status") == "False"
+                and ready[0].get("reason") == "HealthCheckContainerError",
+                "Recovery only supports a confirmed container startup failure.")
+        serving = status.get("latestReadyRevisionName")
+        require(bool(serving) and serving != revision and traffic(service) == {serving: 100},
+                "Recovery requires the previous ready revision at 100% and the failed candidate at zero traffic.")
+        for name, expected in ((revision, "False"), (serving, "True")):
+            document = self.document("run", "revisions", "describe", name, f"--region={REGION}")
+            metadata = document.get("metadata", {})
+            conditions = [c for c in document.get("status", {}).get("conditions", []) if c["type"] == "Ready"]
+            require(metadata.get("name") == name
+                    and metadata.get("labels", {}).get("serving.knative.dev/service") == BACKEND_SERVICE
+                    and len(conditions) == 1 and conditions[0].get("status") == expected,
+                    "Recovery revision identity or readiness could not be verified.")
+            if name == revision:
+                require(conditions[0].get("reason") == "HealthCheckContainerError",
+                        "Failed candidate does not have the reviewed startup failure.")
+        self.receipt["failed_backend_candidate_recovery"] = {
+            "failed_revision": revision, "serving_revision": serving, "serving_ready_verified": True}
+
+    def preflight(self, *, bootstrap_backend_health=None, recover_failed_backend_candidate=None):
         self.before = self.snapshot("cloud-before")
         self.receipt.update(project=PROJECT, region=REGION, services=list(SERVICES),
                             owner_login_or_training_read_verified=False, manual_traffic_rollback={})
         for name in SERVICES:
             service = self.before[name]
-            require(any(c.get("status") == "True" for c in service["status"].get("conditions", []) if c["type"] == "Ready"),
-                    "Existing Cloud Run service is not ready: " + name)
+            if name == BACKEND_SERVICE and recover_failed_backend_candidate:
+                self.recover_failed_backend(service, recover_failed_backend_candidate)
+            else:
+                require(any(c.get("status") == "True" for c in service["status"].get("conditions", []) if c["type"] == "Ready"),
+                        "Existing Cloud Run service is not ready: " + name)
             self.expected_templates[name] = service["spec"]["template"]
             self.expected_traffic[name] = traffic(service)
             self.expected_tags[name] = self.tags(service)

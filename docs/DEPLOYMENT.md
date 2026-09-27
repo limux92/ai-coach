@@ -130,6 +130,16 @@ inspect the receipt and live traffic before retrying. The saved
 `manual_traffic_rollback` command is for a reviewed recovery if automatic rollback
 cannot be verified. Concurrent changes by another operator require review.
 
+After diagnosing and fixing a backend candidate's container startup failure,
+Codex may review an explicit `--recover-failed-backend-candidate FAILED_REVISION`
+retry. It must name the exact latest release candidate, with a confirmed startup
+failure and zero traffic. The previous ready revision must still serve 100%, and
+both revision identities/readiness are checked directly. Gateway readiness,
+private backend health, IAM, configuration, CI and all candidate/promotion checks
+remain mandatory. This option cannot recover a production outage or unknown
+failure. Bundle source uses readable directory/file modes for the non-root
+container; the enclosing receipts and logs keep private permissions.
+
 The backend probe uses a short-lived identity token from the existing Google
 Cloud login solely for `/health`, whose response is static, following
 [Google's private-service test flow](https://docs.cloud.google.com/run/docs/authenticating/developers#test_your_private_service). The token stays in

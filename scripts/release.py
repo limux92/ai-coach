@@ -110,6 +110,7 @@ def bundle(run, git, sha, assets):
             else:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(package.read(item))
+                target.chmod(0o755 if (item.external_attr >> 16) & 0o111 else 0o644)
     source = destination / "adapters/mcp"
     for name, digest in assets.items():
         content = (ROOT / "adapters/mcp/static/dashboard" / name).read_bytes()
@@ -117,6 +118,11 @@ def bundle(run, git, sha, assets):
         target = source / "static/dashboard" / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(content)
+        target.chmod(0o644)
+    # The private receipt umask must not make Docker COPY unreadable to the
+    # non-root runtime user. Normalize only public source, never its private parent.
+    for directory in [destination, *(path for path in destination.rglob("*") if path.is_dir())]:
+        directory.chmod(0o755)
     return {"ai-coach-sync": destination, "ai-coach-chat": source}
 
 
@@ -138,10 +144,12 @@ def release(run, git, args, run_id):
         from release_scheduler import SchedulerMigration
         scheduler = SchedulerMigration(cloud)
         scheduler.preflight()
+    preflight_options = {}
     if args.bootstrap_backend_health:
-        cloud.preflight(bootstrap_backend_health=args.bootstrap_backend_health)
-    else:
-        cloud.preflight()
+        preflight_options["bootstrap_backend_health"] = args.bootstrap_backend_health
+    if getattr(args, "recover_failed_backend_candidate", None):
+        preflight_options["recover_failed_backend_candidate"] = args.recover_failed_backend_candidate
+    cloud.preflight(**preflight_options)
     pr, sha = git.publish(tree, args.message, run_id)
     run.save()
     git.wait_for_ci(pr, sha)
@@ -174,6 +182,8 @@ def parser():
                        help="Explicit health-route migration from this exact serving backend revision; candidates stay strict")
     value.add_argument("--physiology-scheduler-migration", action="store_true",
                        help="Publish the exact reviewed Scheduler diff and update only its deadline/retry policy after service release")
+    value.add_argument("--recover-failed-backend-candidate", metavar="FAILED_REVISION",
+                       help="Recover this exact latest zero-traffic startup failure only while the previous revision is ready at 100%%")
     return value
 
 
@@ -183,6 +193,8 @@ def main(argv=None):
         parser().error("--bootstrap-backend-health requires --release")
     if args.physiology_scheduler_migration and not args.release:
         parser().error("--physiology-scheduler-migration requires --release")
+    if args.recover_failed_backend_candidate and not args.release:
+        parser().error("--recover-failed-backend-candidate requires --release")
     if args.release and (args.public_repo != REPOSITORY or not args.message or not args.message.strip()):
         parser().error("--release requires --public-repo limux92/ai-coach and --message TITLE")
     os.umask(0o077)
