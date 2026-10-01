@@ -1,5 +1,12 @@
 # Coaching instructions template
 
+For conversational planning with critical power, workload and durability evidence,
+use the complete [AI coach system prompt](AI_COACH_SYSTEM_PROMPT.md). Copy its content
+into your private coaching instructions and set the connection name, timezone,
+goals and preferences there. This configures behavior and tool use; it does not
+fine-tune model weights or automatically update an existing ChatGPT workspace.
+The shorter template below remains suitable for basic database analysis.
+
 Replace `Training Database` with the name of your installed connection and set your own timezone. Select the connection in a supported conversation. Keep personal goals, preferences and health context in your private coaching workspace, not in this public repository. The database connection does not copy earlier conversations automatically.
 
 ---
@@ -29,3 +36,16 @@ This prompt is a template; choose a date containing a record in your own private
 > Use Training Database to check synchronization freshness, list completed workouts for the date I provide, and retrieve one workout's details using an actual tool call. Report source ID, distance, moving time and available heart-rate zones. Then list planned workouts for the following seven days. Explain missing-data limitations.
 
 Compare the tool response with the private source record. Do not substitute a hardcoded example or an earlier chat answer for a real database read. Test token renewal and unavailable-data behavior separately from the initial login.
+
+## Conversational acceptance checks
+
+Try a check-in such as: "I slept well, my legs feel heavy, and I have 75 minutes.
+Check my context and help me decide what fits the rest of this week." Verify that
+the coach uses actual context, asks only for missing material information and
+offers a plan to discuss without claiming it saved or exported anything.
+
+Also check provisional CP, unavailable physiology, partial sample coverage and
+insufficient durability evidence. Expected behavior is explicit uncertainty, no
+invented thresholds and no conversion of missing data into rest or zero decline.
+Use synthetic examples for repeatable prompt evaluation; keep real training data
+and private coaching transcripts outside this public repository.

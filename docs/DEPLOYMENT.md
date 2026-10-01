@@ -1,160 +1,118 @@
 # Routine backend and gateway release
 
-Entry point: `scripts/release.py`. It uses the existing Python environments,
-GitHub CLI, Gitleaks and project Google Cloud wrapper. There are no new runtime
-dependencies. Git operations live in `scripts/release_git.py`; Cloud Run checks
-and rollback live in `scripts/release_cloud.py`. Static health and public
-endpoint probes live in `scripts/release_health.py`.
+The release has two explicit commands:
 
-The fixed destinations are the **public** `limux92/ai-coach` repository and
-both `ai-coach-sync` (private training backend) and `ai-coach-chat` (dashboard/MCP
-gateway) in project `magne-ai-coach-20260915`, region `europe-north1`.
-Every release deploys both services. It does not import training data, provision
-resources or change IAM. Changes under `infra/` relative to `origin/main` stop
-the routine release and need a separate infrastructure review.
+- `scripts/release_check.py` runs tests, builds, scans, and creates a sealed source bundle.
+- `scripts/release_deploy.py` consumes that receipt and performs GitHub publication, exact-head CI verification, Cloud Run deployment, and production verification.
 
-The one-time `--physiology-scheduler-migration` option binds that separate review
-to the exact recorded `infra/deploy.py` diff; any other infrastructure change still
-fails. It verifies the existing Scheduler job before publication, then updates only
-its deadline to 300 seconds and both retry limits to zero after both services pass.
-Target, identity, schedule, other configuration and paused/enabled state are preserved.
-It does not run the infrastructure bootstrap script. A Scheduler-stage failure leaves
-the successfully released service revisions in place and marks the overall receipt
-failed; inspect the saved Scheduler snapshots before any recovery action.
+The deploy command never runs pytest, npm, a build, or Gitleaks. The compatibility
+entry point `scripts/release.py --check` forwards to the check command;
+the old combined `scripts/release.py --release` path is retired.
 
-Use this for compatible application updates. The two traffic switches are
-sequential, backend first, so API changes must work with the previous gateway
-during that interval. Schema migrations and coordinated breaking changes need
-a separate plan. Traffic rollback cannot undo writes made by running code.
+The fixed destinations are the public `limux92/ai-coach` repository and both
+`ai-coach-sync` and `ai-coach-chat` in Google Cloud project
+`magne-ai-coach-20260915`, region `europe-north1`. Every routine deployment
+ships both services. It preserves existing Cloud Run configuration and IAM.
 
-## First use
+## Prepare the exact source
 
-Use VS Code's visible integrated terminal in the AI-Coach workspace. Keep
-VS Code open. The existing setup must have:
+Use VS Code's visible integrated terminal and keep VS Code open. Review and stage
+the exact public files first. The workspace must contain no conflicts, unstaged
+changes, or untracked nonignored files. Neither command stages files, stashes,
+force-pushes, merges a PR, changes IAM, or reads training records.
 
-- Both Python virtual environments installed from their respective lockfiles,
-  including test dependencies: `.venv/` and `adapters/mcp/.venv/`.
-- Node 24/npm, Git and authenticated `gh` access to `limux92/ai-coach`.
-- `.tools/gitleaks/gitleaks` and `scripts/gcloud`, with the existing project
-  authentication under `.local/gcloud/`. That existing operator needs permission
-  to invoke the private backend as well as deploy both services. The script does
-  not grant permissions if the health probe is denied.
-- The existing `.local/firebase-auth.json` configuration receipt and live
-  gateway/backend services. No credentials belong in the prompt or Git.
+The local setup requires the root and adapter Python environments, Node/npm,
+the local Gitleaks binary, authenticated `gh`, `scripts/gcloud`, and the existing
+private Firebase configuration receipt. Git history must be complete and the
+local `origin/main` ref must exist. The check phase does not fetch or contact
+GitHub or Google Cloud; `npm ci` may use the package registry when its cache is
+insufficient.
 
-Review the intended diff and stage those files in VS Code Source Control.
-Include the release script, helpers, tests and documentation on its first release.
-Inspect existing branch commits too: pushing a branch publishes its history,
-not just the newest staged diff. Secret scanning cannot identify every piece
-of personal data; the public-source review is still necessary.
+Changes under `infra/` stop the routine workflow. The one-time
+`--physiology-scheduler-migration` exception accepts only the recorded, separately
+reviewed `infra/deploy.py` diff. The same flag must be used in both phases.
 
-A release requires all intended source staged, no leftover unstaged or untracked
-non-ignored files, and a branch containing current `origin/main`. The script
-never stages everything, stashes changes, force-pushes, resolves conflicts or
-merges a PR. If main has moved, update the branch deliberately before retrying.
+## 1. Check and seal
 
-## Commands
-
-Show staged/unstaged/untracked scope without tests or external writes:
+Run:
 
 ```sh
-.venv/bin/python scripts/release.py --plan
+.venv/bin/python scripts/release_check.py
 ```
 
-Run local Python tests, frontend format/tests/build/size checks, staged and
-full-history secret scans, and a generated-assets secret scan:
+This command:
+
+1. Validates the repository, public path scope, staging area, local `origin/main`, and staged Git tree.
+2. Installs the locked dashboard packages and runs root, adapter, and dashboard checks.
+3. Scans staged source, full Git history, generated assets, and the final source bundle with Gitleaks.
+4. Creates normalized bundles directly from the staged Git tree and inserts the exact checked dashboard assets.
+5. Writes a schema-v2 receipt under `.local/release-checks/<run-id>/summary.json` with file hashes, modes, sizes, service bundle digests, publication paths, tree SHA, and an integrity digest.
+
+A receipt is deployable only when its status is exactly `checked` and
+`local_checks_passed` is true. Artifact tampering, symlinks, extra or missing
+files, unsafe modes, path escapes, or a changed index tree fail validation.
+
+## 2. Validate the deployment input
+
+Any terminal-capable agent can prove it can consume the receipt without network
+or external mutation:
 
 ```sh
-.venv/bin/python scripts/release.py --check
+.venv/bin/python scripts/release_deploy.py \
+  --validate-only \
+  --receipt .local/release-checks/REPLACE_RUN_ID/summary.json
 ```
 
-After the exact public source payload has been reviewed and authorized, run:
+This verifies the sealed receipt, all bundle contents, the clean workspace, and
+the current index tree. Add `--commit HEAD` only when the checked tree has already
+been committed and its commit tree should also be verified.
+
+## 3. Publish and deploy
+
+After the exact public payload and destination are authorized, run:
 
 ```sh
-.venv/bin/python scripts/release.py --release \
+.venv/bin/python scripts/release_deploy.py \
+  --release \
+  --receipt .local/release-checks/REPLACE_RUN_ID/summary.json \
   --public-repo limux92/ai-coach \
   --message "Describe the reviewed change"
 ```
 
-`--release` includes all checks, so a separate `--check` run is optional.
-The destination flag acknowledges the public target; it does not override an
-agent's approval rules or an earlier rejected publication request.
+The deploy phase revalidates the receipt and tree before any external command.
+It then fetches main, rechecks publication scope, reads current Cloud Run state,
+commits the exact checked tree, pushes a branch, opens or reuses a PR, and waits
+for all four named CI jobs on the exact commit. After CI passes it revalidates
+the commit tree and sealed bundle, uploads zero-traffic candidates for both
+services, probes them, rechecks CI, promotes them in order, and verifies
+production, configuration, IAM, private backend health, and asset hashes.
 
-## What a release does
+GitHub CI never deploys. The local command performs the Cloud Run operations
+after exact-head CI passes. The PR remains open and is not merged automatically.
 
-1. Validates the repository, staging area and scope; fetches main; freezes the
-   staged tree. Installs frontend dependencies with `npm ci`.
-2. Runs the local checks and scans. Stops if source changes during the run.
-3. Reads current cloud configuration/IAM for both services. Verifies gateway
-   public metadata and access denials, and private backend static `/health`.
-   Saves both previous traffic allocations and recovery commands.
-4. Commits staged files, pushes the current branch and opens/reuses a PR. On
-   main it creates a release branch. Waits up to 30 minutes for all four named
-   CI jobs on that PR head. Failed, skipped or cancelled jobs cannot pass.
-5. Packages committed source and the exact checked dashboard assets into an
-   isolated directory. Scans it and records each service's upload inventory.
-6. Deploys a tagged revision of each service with zero serving traffic. Checks
-   that environment, secrets bindings, resources, service identity and IAM are
-   preserved. Verifies private backend static health, gateway OAuth metadata,
-   access denials and SHA-256 hashes of every dashboard asset.
-7. After **both** candidates pass, rechecks the PR and CI. Promotes the backend,
-   verifies it, then promotes and verifies the gateway. Removes the release tags
-   and verifies production HTTPS, redirects, assets and access denials.
-   If promotion or production verification fails, attempts to restore both
-   previous traffic allocations, gateway first. It still attempts backend
-   recovery if gateway recovery fails; another operator's traffic is not overwritten.
+Deployment evidence is written under
+`.local/deployments/<run-id>/summary.json`. It binds the deployment to the check
+receipt hash, receipt integrity digest, and checked tree. A failed run keeps its
+stage, error, command logs, Cloud snapshots, and any zero-traffic candidates for
+review. Reusing the same successful check receipt is permitted only while its
+artifacts and exact tree still validate.
 
-The **local script** deploys after CI passes. GitHub CI itself does not deploy.
-The PR remains open; production may therefore be ahead of main until it is
-merged. Source commits and PRs are not rolled back when a cloud stage fails.
-Cloud rollback restores traffic only, not data, IAM or environment configuration.
-It records the recovery outcome separately for each service.
+## Failure and recovery rules
 
-Cloud Run's [zero-traffic deployment flag](https://docs.cloud.google.com/sdk/gcloud/reference/run/deploy#--no-traffic)
-and [GitHub check states](https://cli.github.com/manual/gh_pr_checks) are the
-provider interfaces used by this workflow.
+Stop on a nonzero exit and inspect the printed receipt path. Do not bypass a
+failed gate or replace it with manual commands. Source commits and PRs are not
+rolled back after a Cloud failure. If promotion fails, the workflow attempts to
+restore each previous traffic allocation and records whether that recovery was
+verified.
 
-## Results and failures
+`--recover-failed-backend-candidate REVISION` is only for a reviewed retry of the
+exact latest zero-traffic backend candidate with a confirmed startup health
+failure while the previous ready revision still serves 100 percent. The
+`--bootstrap-backend-health REVISION` option is only for the reviewed first
+migration from an existing backend revision that lacks the static `/health`
+route. Both options retain every normal CI, IAM, configuration, candidate, and
+production gate.
 
-The terminal prints numbered stages and a heartbeat during long commands.
-Detailed logs, upload inventory, before/after descriptions, asset hashes and
-`summary.json` remain under ignored `.local/releases/<run-id>/`, created with
-private filesystem permissions. These files can contain configuration details:
-report the summary fields, not complete logs or service descriptions to a model.
-
-Exit 0 means the requested mode completed. Any failure exits nonzero. Stop and
-report the failed stage and receipt path. Do not blindly rerun or substitute
-manual cloud commands. A failed candidate may leave a zero-traffic revision and
-its tag for inspection. If interrupted, a build may still finish remotely;
-inspect the receipt and live traffic before retrying. The saved
-`manual_traffic_rollback` command is for a reviewed recovery if automatic rollback
-cannot be verified. Concurrent changes by another operator require review.
-
-After diagnosing and fixing a backend candidate's container startup failure,
-Codex may review an explicit `--recover-failed-backend-candidate FAILED_REVISION`
-retry. It must name the exact latest release candidate, with a confirmed startup
-failure and zero traffic. The previous ready revision must still serve 100%, and
-both revision identities/readiness are checked directly. Gateway readiness,
-private backend health, IAM, configuration, CI and all candidate/promotion checks
-remain mandatory. This option cannot recover a production outage or unknown
-failure. Bundle source uses readable directory/file modes for the non-root
-container; the enclosing receipts and logs keep private permissions.
-
-The backend probe uses a short-lived identity token from the existing Google
-Cloud login solely for `/health`, whose response is static, following
-[Google's private-service test flow](https://docs.cloud.google.com/run/docs/authenticating/developers#test_your_private_service). The token stays in
-memory and is never written to the release logs. It also checks that anonymous
-requests are denied. No authenticated `/v1/status`, workout, database or sync
-routes are called. Gateway probes use no owner credentials.
-Production MCP/OAuth and adapter health are checked on the canonical `run.app`
-origin. Firebase Hosting forwards only `/dashboard`, so the custom domain is
-checked separately for matching assets/configuration, denied anonymous dashboard
-API access and its redirects. Release probes must not assume it forwards MCP routes.
-
-A successful release proves both serving revisions, static backend health,
-public deployment and the listed guards. It does **not** prove fresh owner
-sign-in, real workout reads or data freshness.
-
-The current **AI-Coach Local** chat agent and `local_worker.py` are draft-only.
-They cannot execute a release. Use the [copyable prompt](LOCAL_DEPLOY_PROMPT.md)
-with a terminal-capable local agent, or paste the command into the terminal.
+A successful deployment proves the recorded revisions and static service checks.
+It does not prove a fresh owner sign-in, a real workout read, data freshness, or
+a physical Garmin import; run those acceptance checks separately when relevant.

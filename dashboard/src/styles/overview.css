@@ -364,17 +364,3 @@
     display: none;
   }
 }
-
-.quick-workout-panel {
-  padding: 1.25rem;
-  margin-block: 1rem;
-}
-.quick-workout-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-}
-.quick-workout-panel p,
-.quick-workout-panel ul {
-  margin-block: 0.75rem;
-}

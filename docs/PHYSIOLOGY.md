@@ -229,12 +229,12 @@ for grade, must not be called TSS and cannot be added to cycling kJ. Running Dâ€
 The compact context returns seven sessions per window and ten target events, with lookup/omission metadata.
 Stored sessions are bounded to 500 per window; excess counts are explicit.
 
-Quick Workout uses a separate `quick_workout_v1` projection in `physiology_projection.py` to retain its
-existing 24 KB total prompt cap. It preserves model IDs/status/cutoff/uncertainty, workload, two ordered
-events with omitted counts, durability and source limitations, without duplicating effort/session arrays.
-The physiology portion is bounded to 8 KB and the remaining total budget. If it cannot fit, quantitative
-physiology is explicitly omitted with a conservative-guidance limitation and evidence lookup. Base
-injury/wellness observations are preserved. Full evidence remains available through the read interfaces.
+Conversational coaching uses this saved context and focused evidence reads directly.
+The separate Quick Workout provider projection has been retired with that feature.
+[AI coach instructions](AI_COACH_SYSTEM_PROMPT.md) specify summary-first retrieval,
+status/provenance interpretation and collaborative planning. The adapter's 64 KB
+response bound still applies; bounded item counts are not a universal 15 KB payload
+guarantee. Full evidence remains available through the read interfaces.
 
 Read-only routes provide context, model/analysis evidence, per-workout pointers, sessions for exactly 7 or
 28 days, and paginated events. Sessions default to 25/max 50 per page; events default to 50/max 100.

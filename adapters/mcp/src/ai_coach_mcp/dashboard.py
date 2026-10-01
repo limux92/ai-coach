@@ -15,7 +15,6 @@ from starlette.responses import FileResponse, JSONResponse, RedirectResponse
 from starlette.routing import Mount, Route
 
 from .backend import BackendError
-from .quick_workout_service import QuickWorkoutError, QuickWorkoutService
 
 DEFAULT_FIELDS = "timestamp,heart_rate,distance,enhanced_speed,speed,cadence,power"
 SAMPLE_FIELDS = frozenset(DEFAULT_FIELDS.split(",")) | {
@@ -117,8 +116,7 @@ class DashboardHeaders:
         await self.app(scope, receive, secured_send)
 
 
-def dashboard_routes(settings, backend, verifier, static_dir=None, *, quick_workout_service=None):
-    quick_workout_service = quick_workout_service or QuickWorkoutService(backend)
+def dashboard_routes(settings, backend, verifier, static_dir=None):
     root = Path(static_dir or os.environ.get("DASHBOARD_STATIC_DIR") or
                 Path(__file__).resolve().parents[2] / "static" / "dashboard").resolve()
 
@@ -197,20 +195,6 @@ def dashboard_routes(settings, backend, verifier, static_dir=None, *, quick_work
         return await read("/v1/summaries", {"period": params["period"],
                                           "date": calendar_date(params.get("date")).isoformat()})
 
-    async def quick_workout(request):
-        # The existing owner middleware authenticates before this route. No caller
-        # prompt, date, identity, model or destination is accepted.
-        if request.query_params:
-            return JSONResponse({"error": "Quick Workout accepts no query parameters"}, status_code=422)
-        async for chunk in request.stream():
-            if chunk:
-                return JSONResponse({"error": "Quick Workout accepts an empty request body"}, status_code=422)
-        try:
-            sport = 'running' if request.url.path.endswith('/quick-workout/run') else 'cycling'
-            return JSONResponse(await quick_workout_service.generate(sport))
-        except (QuickWorkoutError, BackendError) as exc:
-            return JSONResponse({"error": str(exc)}, status_code=exc.status_code)
-
     async def shell(request):
         relative = request.path_params.get("path", "")
         parts = relative.split("/")
@@ -231,9 +215,7 @@ def dashboard_routes(settings, backend, verifier, static_dir=None, *, quick_work
     async def redirect(request):
         return RedirectResponse("/dashboard/", status_code=307, headers={"Cache-Control": "no-store"})
 
-    api = Starlette(routes=[Route("/quick-workout", quick_workout, methods=["POST"]),
-                           Route("/quick-workout/run", quick_workout, methods=["POST"]),
-                           Route("/workouts", workouts), Route("/planned-workouts", plans),
+    api = Starlette(routes=[Route("/workouts", workouts), Route("/planned-workouts", plans),
         Route("/workouts/{workout_id}", detail), Route("/workouts/{workout_id}/samples", samples),
         Route("/status", status), Route("/context", context), Route("/summaries", summaries)])
     dashboard = Starlette(routes=[Route("/config", config), Mount("/api", OwnerAPI(api, settings, verifier)),

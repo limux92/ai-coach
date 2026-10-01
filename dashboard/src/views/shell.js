@@ -1,6 +1,5 @@
 import { addDays, formatDate, escapeHTML as esc } from '../data.js';
 import { names, icon, brand, spinner } from '../ui.js';
-import { quickWorkoutPanel } from '../quick-workout.js';
 import { overview } from './overview.js';
 import { calendar } from './calendar.js';
 
@@ -153,7 +152,6 @@ export function shell(state, config) {
               </div>`
             : ''
         }
-        ${quickWorkoutPanel(state)}
         ${state.loading ? loadingView() : state.error ? '' : state.view === 'overview' ? overview(state) : calendar(state)}
         <footer class="workspace-footer">
           <span>YOUR EFFORT, IN PERSPECTIVE.</span

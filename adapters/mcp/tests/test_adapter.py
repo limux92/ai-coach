@@ -102,7 +102,7 @@ def test_initialization_metadata_and_readonly_tools(settings, key):
         assert init.status_code == 200
         tools = rpc(client, bearer).json()["result"]["tools"]
         assert {tool["name"] for tool in tools} == {"get_coach_context", "list_completed_workouts",
-            "get_workout_details", "list_planned_workouts", "list_wellness", "get_workout_samples", "get_training_summary", "render_quick_workout", "render_running_workout",
+            "get_workout_details", "list_planned_workouts", "list_wellness", "get_workout_samples", "get_training_summary",
             "get_physiology_evidence", "get_physiology_events", "get_physiology_sessions"}
         for tool in tools:
             assert tool["annotations"]["readOnlyHint"] is True

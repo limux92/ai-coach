@@ -47,6 +47,11 @@ test('extracted overview renders scoped totals, unknown data, and escaped names'
   assert.doesNotMatch(html, /<img src=x/);
   assert.match(html, /data-workout="current"/);
   assert.doesNotMatch(html, /data-workout="old"/);
+  assert.doesNotMatch(html, /quick-workout|Quick Workout|Quick Ride|Quick Run/);
+  assert.doesNotMatch(
+    shell(fixture({ view: 'calendar' }), config),
+    /quick-workout|Quick Workout|Quick Ride|Quick Run/,
+  );
 });
 
 test('calendar renders adjacent cards but counts the selected period, hiding cancelled plans', () => {
