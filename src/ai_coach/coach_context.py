@@ -334,4 +334,6 @@ def build_context(store, settings, *, days, upcoming, sync_status):
         if not complete:
             result["selection"][collection].update(selection_complete=False, scan_limit=MAX_SCAN_RECORDS, scan_resume_after=resume)
     result["selection_note"] = "Bounded latest facts/soonest plans; detail fields omitted. Follow lookup next_cursor pages for more. A partial scan cannot establish the latest records. /v1/summaries?period=week&date=YYYY-MM-DD gives rich totals."
+    from .physiology_context import read_context
+    result["physiology"] = read_context(store, settings, now)
     return result

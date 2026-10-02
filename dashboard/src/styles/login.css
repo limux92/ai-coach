@@ -1,0 +1,42 @@
+.login-page {
+  max-width: 840px;
+  margin: auto;
+  min-height: 100vh;
+  padding: 36px 28px;
+  display: flex;
+}
+.login-layout {
+  flex: 1;
+  display: grid;
+  align-items: center;
+  padding: 70px 0;
+  text-align: center;
+}
+.login-copy h1 {
+  font-size: clamp(2.4rem, 4.7vw, 4rem);
+  letter-spacing: -0.04em;
+  line-height: 1.15;
+}
+.login-copy > p:not(.login-error) {
+  margin: 24px auto 0;
+  max-width: 620px;
+  color: var(--muted);
+  font-size: 1.05rem;
+  line-height: 1.7;
+}
+.login-button {
+  margin-top: 28px;
+  padding: 12px 18px;
+}
+.login-error {
+  margin-top: 18px;
+  color: var(--danger);
+}
+@media (max-width: 760px) {
+  .login-page {
+    padding: 24px 20px;
+  }
+  .login-layout {
+    padding: 45px 0;
+  }
+}

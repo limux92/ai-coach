@@ -1,0 +1,246 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "AI-Coach: Create local job",
+      "type": "process",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "scripts/harness.py",
+        "create",
+        "--title",
+        "${input:title}",
+        "--goal",
+        "${input:goal}",
+        "--acceptance",
+        "${input:acceptance}",
+        "--file",
+        "${input:source}",
+        "--task",
+        "${input:task}",
+        "--provider",
+        "local"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "clear": false
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "AI-Coach: Run worker job",
+      "type": "process",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "scripts/harness.py",
+        "run",
+        "${input:jobId}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "clear": false
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "AI-Coach: Create Gemini review",
+      "type": "process",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "scripts/harness.py",
+        "create",
+        "--title",
+        "${input:title}",
+        "--goal",
+        "${input:goal}",
+        "--acceptance",
+        "${input:acceptance}",
+        "--file",
+        "${input:source}",
+        "--task",
+        "review",
+        "--provider",
+        "gemini"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "clear": false
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "AI-Coach: Harness status",
+      "type": "process",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "scripts/harness.py",
+        "status"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "clear": false
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "AI-Coach: Prepare handoff",
+      "type": "process",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "scripts/harness.py",
+        "handoff",
+        "${input:jobId}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "clear": false
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "AI-Coach: Record review",
+      "type": "process",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "scripts/harness.py",
+        "review",
+        "${input:jobId}",
+        "--verdict",
+        "${input:verdict}",
+        "--checks",
+        "${input:checks}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "clear": false
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "AI-Coach: Inspect harness setup",
+      "type": "process",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "scripts/harness.py",
+        "doctor"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "clear": false
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "title",
+      "type": "promptString",
+      "description": "Enter the job title"
+    },
+    {
+      "id": "goal",
+      "type": "promptString",
+      "description": "Enter the job goal"
+    },
+    {
+      "id": "acceptance",
+      "type": "promptString",
+      "description": "Enter the acceptance criteria"
+    },
+    {
+      "id": "source",
+      "type": "promptString",
+      "description": "Enter the source file path",
+      "default": "scripts/local_worker.py:28:59"
+    },
+    {
+      "id": "jobId",
+      "type": "promptString",
+      "description": "Enter the job ID"
+    },
+    {
+      "id": "task",
+      "type": "pickString",
+      "description": "Select the task type",
+      "options": [
+        "implement",
+        "debug",
+        "refactor",
+        "docs",
+        "explain",
+        "tests"
+      ],
+      "default": "implement"
+    },
+    {
+      "id": "verdict",
+      "type": "pickString",
+      "description": "Record review only; never applies code",
+      "options": [
+        "accepted",
+        "rejected"
+      ]
+    },
+    {
+      "id": "checks",
+      "type": "promptString",
+      "description": "Checks actually performed and result; this text is not executed"
+    }
+  ]
+}

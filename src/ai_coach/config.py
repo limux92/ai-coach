@@ -10,6 +10,9 @@ class Settings:
     athlete_id: str = "0"
     timezone: str = "Europe/Oslo"
     history_start_date: str = "2000-01-01"
+    physiology_lookback_days: int = 42
+    intervals_requests_per_run: int = 80
+    intervals_budget_pool: str = "personal"
 
     @classmethod
     def from_env(cls):
@@ -20,4 +23,7 @@ class Settings:
             athlete_id=os.getenv("INTERVALS_ATHLETE_ID", "0"),
             timezone=os.getenv("ATHLETE_TIMEZONE", "Europe/Oslo"),
             history_start_date=os.getenv("HISTORY_START_DATE", "2000-01-01"),
+            physiology_lookback_days=int(os.getenv("PHYSIOLOGY_LOOKBACK_DAYS", "42")),
+            intervals_requests_per_run=int(os.getenv("INTERVALS_REQUESTS_PER_RUN", "80")),
+            intervals_budget_pool=os.getenv("INTERVALS_BUDGET_POOL", "personal"),
         )

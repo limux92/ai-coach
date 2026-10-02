@@ -69,6 +69,17 @@ def test_missing_dashboard_client_does_not_disable_mcp(settings, key):
     assert tokens.calls == 0
 
 
+@pytest.mark.parametrize("path", ["/quick-workout", "/quick-workout/run"])
+def test_retired_recommendations_are_unavailable_after_owner_auth(settings, key, path):
+    app, tokens, _ = setup(settings, key, lambda request: pytest.fail("Retired route accessed backend"))
+    with client_for(app, settings) as client:
+        assert client.post("/dashboard/api" + path).status_code == 401
+        response = client.post("/dashboard/api" + path, headers=bearer(key, settings))
+        assert response.status_code == 404
+        assert response.headers["cache-control"] == "no-store"
+    assert tokens.calls == 0
+
+
 @pytest.mark.parametrize("path", ["/status", "/context", "/summaries?period=week&date=2026-09-16",
     "/workouts?oldest=2026-09-01&newest=2026-09-16", "/planned-workouts?oldest=2026-09-01&newest=2026-09-16",
     "/workouts/i-123", "/workouts/i-123/samples", "/not-a-route"])
