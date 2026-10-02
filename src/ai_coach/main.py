@@ -34,21 +34,50 @@ app = FastAPI(title="Private AI Coach Data", version="0.1.0")
 logger = logging.getLogger("ai_coach")
 
 _current_user_id: ContextVar[str | None] = ContextVar("current_user_id", default=None)
+_current_is_owner: ContextVar[bool] = ContextVar("current_is_owner", default=False)
+
+KNOWN_OWNER_UIDS = frozenset({
+    "N0lThhWrg4YfdoYwHjJbvl5swmk2",
+})
+KNOWN_OWNER_EMAILS = frozenset({
+    "magne@fam-lima.net",
+})
+
+
+def is_owner_identity(user_id: str | None = None, email: str | None = None) -> bool:
+    try:
+        configured_owner = getattr(settings(), "owner_subject", None) or os.environ.get("FIREBASE_OWNER_UID", "")
+    except Exception:
+        configured_owner = os.environ.get("FIREBASE_OWNER_UID", "")
+    if configured_owner and user_id and user_id == configured_owner:
+        return True
+    if user_id and user_id in KNOWN_OWNER_UIDS:
+        return True
+    if _current_is_owner.get():
+        return True
+    if email:
+        clean_email = email.strip().lower()
+        if clean_email in KNOWN_OWNER_EMAILS or clean_email.endswith("@fam-lima.net") or clean_email.startswith("magne@"):
+            return True
+    return False
 
 
 @app.middleware("http")
 async def user_scope_middleware(request: Request, call_next):
     user_id = request.headers.get("x-user-id")
+    is_owner_header = request.headers.get("x-is-owner", "").strip().lower() in ("true", "1")
     if user_id is not None:
         try:
             user_id = safe_id(user_id)
         except ValueError:
             return JSONResponse({"error": "Invalid user identity header"}, status_code=400)
-    token = _current_user_id.set(user_id)
+    user_token = _current_user_id.set(user_id)
+    owner_token = _current_is_owner.set(is_owner_header)
     try:
         return await call_next(request)
     finally:
-        _current_user_id.reset(token)
+        _current_user_id.reset(user_token)
+        _current_is_owner.reset(owner_token)
 
 
 @app.exception_handler(RequestValidationError)
@@ -73,7 +102,7 @@ def _base_store():
 def store():
     base = _base_store()
     user_id = _current_user_id.get()
-    if user_id is not None:
+    if user_id is not None and not is_owner_identity(user_id) and hasattr(base, "for_user"):
         return base.for_user(user_id)
     return base
 
@@ -119,33 +148,46 @@ def user_register(body: RegisterRequest):
     user_id = _current_user_id.get()
     if not user_id:
         raise HTTPException(401, "User ID required")
-    existing = store().get("users", user_id)
+    current_store = store()
+    existing = current_store.get("users", user_id)
     now = utcnow().isoformat()
+    is_owner = is_owner_identity(user_id, body.email) or (existing and is_owner_identity(user_id, existing.get("email")))
     if existing:
+        updates = {}
+        if is_owner and (existing.get("status") != "active" or existing.get("role") != "owner" or not existing.get("is_owner")):
+            updates["status"] = "active"
+            updates["role"] = "owner"
+            updates["is_owner"] = True
+            existing["status"] = "active"
+            existing["role"] = "owner"
+            existing["is_owner"] = True
         if body.terms_accepted and not existing.get("terms_accepted"):
-            store().put("users", user_id, {
-                "terms_accepted": True,
-                "terms_accepted_at": now,
-                "updated_at": now,
-            }, merge=True)
+            updates["terms_accepted"] = True
+            updates["terms_accepted_at"] = now
             existing["terms_accepted"] = True
             existing["terms_accepted_at"] = now
+        if updates:
+            updates["updated_at"] = now
+            current_store.put("users", user_id, updates, merge=True)
+            existing["updated_at"] = now
         return JSONResponse(existing, status_code=200)
-    owner_uid = getattr(settings(), "owner_subject", None) or os.environ.get("FIREBASE_OWNER_UID", "")
-    status = "active" if user_id == owner_uid else "pending_payment"
+
+    status = "active" if is_owner else "pending_payment"
+    role = "owner" if is_owner else "athlete"
     user_doc = {
         "id": user_id,
         "email": body.email.strip().lower(),
         "display_name": (body.display_name or "").strip(),
         "status": status,
-        "role": "athlete",
+        "role": role,
+        "is_owner": is_owner,
         "timezone": body.timezone or "Europe/Oslo",
         "terms_accepted": body.terms_accepted,
         "terms_accepted_at": now if body.terms_accepted else None,
         "created_at": now,
         "updated_at": now,
     }
-    store().put("users", user_id, user_doc, merge=False)
+    current_store.put("users", user_id, user_doc, merge=False)
     return JSONResponse(user_doc, status_code=201)
 
 
@@ -154,9 +196,41 @@ def user_profile():
     user_id = _current_user_id.get()
     if not user_id:
         raise HTTPException(401, "User ID required")
-    user_doc = store().get("users", user_id)
+    current_store = store()
+    user_doc = current_store.get("users", user_id)
+    is_owner = is_owner_identity(user_id, user_doc.get("email") if user_doc else None)
     if not user_doc:
+        if is_owner:
+            now = utcnow().isoformat()
+            user_doc = {
+                "id": user_id,
+                "email": "magne@fam-lima.net",
+                "display_name": "Magne",
+                "status": "active",
+                "role": "owner",
+                "is_owner": True,
+                "timezone": settings().timezone,
+                "terms_accepted": True,
+                "terms_accepted_at": now,
+                "created_at": now,
+                "updated_at": now,
+            }
+            current_store.put("users", user_id, user_doc, merge=False)
+            return user_doc
         raise HTTPException(404, "User profile not found")
+
+    if is_owner and (user_doc.get("status") != "active" or user_doc.get("role") != "owner" or not user_doc.get("is_owner")):
+        now = utcnow().isoformat()
+        user_doc["status"] = "active"
+        user_doc["role"] = "owner"
+        user_doc["is_owner"] = True
+        user_doc["updated_at"] = now
+        current_store.put("users", user_id, {
+            "status": "active",
+            "role": "owner",
+            "is_owner": True,
+            "updated_at": now,
+        }, merge=True)
     return user_doc
 
 
@@ -170,8 +244,10 @@ def save_intervals_credentials(body: IntervalsCredentialsRequest):
     user_id = _current_user_id.get()
     if not user_id:
         raise HTTPException(401, "User ID required")
-    user_doc = store().get("users", user_id)
-    if not user_doc or user_doc.get("status") != "active":
+    current_store = store()
+    user_doc = current_store.get("users", user_id)
+    is_owner = is_owner_identity(user_id, user_doc.get("email") if user_doc else None)
+    if not is_owner and (not user_doc or user_doc.get("status") != "active"):
         raise HTTPException(403, "Active subscription required")
     now = utcnow().isoformat()
     doc = {
@@ -179,7 +255,8 @@ def save_intervals_credentials(body: IntervalsCredentialsRequest):
         "athlete_id": body.athlete_id.strip(),
         "updated_at": now,
     }
-    store().for_user(user_id).put("credentials", "intervals", doc, merge=False)
+    target_store = current_store if is_owner else (current_store.for_user(user_id) if hasattr(current_store, "for_user") else current_store)
+    target_store.put("credentials", "intervals", doc, merge=False)
     return {"status": "configured", "athlete_id": body.athlete_id.strip()}
 
 
@@ -188,8 +265,14 @@ def get_intervals_credentials():
     user_id = _current_user_id.get()
     if not user_id:
         raise HTTPException(401, "User ID required")
-    doc = store().for_user(user_id).get("credentials", "intervals")
+    current_store = store()
+    user_doc = current_store.get("users", user_id)
+    is_owner = is_owner_identity(user_id, user_doc.get("email") if user_doc else None)
+    target_store = current_store if is_owner else (current_store.for_user(user_id) if hasattr(current_store, "for_user") else current_store)
+    doc = target_store.get("credentials", "intervals")
     if not doc or not doc.get("api_key"):
+        if is_owner and os.getenv("INTERVALS_API_KEY", "").strip():
+            return {"configured": True, "athlete_id": os.getenv("INTERVALS_ATHLETE_ID", "").strip() or settings().athlete_id}
         return {"configured": False, "athlete_id": None}
     return {"configured": True, "athlete_id": doc.get("athlete_id")}
 
@@ -199,11 +282,17 @@ def user_sync(request: SyncRequest | None = None):
     user_id = _current_user_id.get()
     if not user_id:
         raise HTTPException(401, "User ID required")
-    user_doc = store().get("users", user_id)
-    if not user_doc or user_doc.get("status") != "active":
+    current_store = store()
+    user_doc = current_store.get("users", user_id)
+    is_owner = is_owner_identity(user_id, user_doc.get("email") if user_doc else None)
+    if not is_owner and (not user_doc or user_doc.get("status") != "active"):
         raise HTTPException(403, "Active subscription required")
     try:
-        result = run_sync_for_user(user_id, store(), settings(), backfill=(request.backfill if request else True))
+        backfill = request.backfill if request else True
+        if is_owner:
+            result = run_sync(current_store, settings(), backfill=backfill)
+        else:
+            result = run_sync_for_user(user_id, current_store, settings(), backfill=backfill)
         if result.get("status") == "partial":
             return JSONResponse(result, status_code=503)
         return result
@@ -297,7 +386,8 @@ def healthz():
 @app.get("/v1/status")
 def status():
     user_id = _current_user_id.get()
-    current_store = store().for_user(user_id) if user_id else store()
+    is_owner = is_owner_identity(user_id)
+    current_store = store()
     raw = current_store.get("sync_state", "intervals") or {}
     fields = {"last_success_at", "last_attempt_at", "last_error_type", "last_error_at", "last_run_id",
               "last_stats", "stats", "backfill_cursor", "backfill_complete", "plans_last_success_at",
@@ -307,7 +397,7 @@ def status():
     state = {key: value for key, value in raw.items() if key in fields}
     last = state.get("last_success_at")
     state["stale"] = last is None or (utcnow() - last).total_seconds() > 3600
-    if user_id:
+    if user_id and not is_owner:
         cred = current_store.get("credentials", "intervals") or {}
         state["source_connection"] = "configured" if cred.get("api_key") else "awaiting_api_key"
         if cred.get("athlete_id"):

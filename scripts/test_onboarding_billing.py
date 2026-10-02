@@ -109,7 +109,7 @@ def run_checks() -> int:
     print("=" * 72)
     start_time = time.time()
     passes = 0
-    total = 8
+    total = 9
 
     store = MockStore()
     settings = make_test_settings()
@@ -124,7 +124,7 @@ def run_checks() -> int:
     # --------------------------------------------------------------------------
     # 1. Registration with Terms of Sale
     # --------------------------------------------------------------------------
-    print("\n[Step 1/8] Testing Athlete Registration with Terms of Sale...")
+    print("\n[Step 1/9] Testing Athlete Registration with Terms of Sale...")
     user_id = "athlete-norway-42"
     reg_payload = {
         "email": "athlete.nordic@example.no",
@@ -145,7 +145,7 @@ def run_checks() -> int:
     # --------------------------------------------------------------------------
     # 2. Payment Wall Barrier (Profile status verification)
     # --------------------------------------------------------------------------
-    print("\n[Step 2/8] Verifying Payment Wall Enforcement (Pending Payment)...")
+    print("\n[Step 2/9] Verifying Payment Wall Enforcement (Pending Payment)...")
     prof_res = client.get("/v1/user/profile", headers={"X-User-Id": user_id})
     assert prof_res.status_code == 200
     assert prof_res.json()["status"] == "pending_payment"
@@ -155,7 +155,7 @@ def run_checks() -> int:
     # --------------------------------------------------------------------------
     # 3. Vipps MobilePay Agreement Checkout Creation
     # --------------------------------------------------------------------------
-    print("\n[Step 3/8] Testing Vipps Recurring Agreement Creation...")
+    print("\n[Step 3/9] Testing Vipps Recurring Agreement Creation...")
     mock_vipps_agreement_id = "agr_norway_998877"
 
     def vipps_mock_transport(request: httpx.Request):
@@ -192,7 +192,7 @@ def run_checks() -> int:
     # --------------------------------------------------------------------------
     # 4. Vipps Return & Instant Activation
     # --------------------------------------------------------------------------
-    print("\n[Step 4/8] Testing Vipps Agreement Activation on Return...")
+    print("\n[Step 4/9] Testing Vipps Agreement Activation on Return...")
     activate_res = client.post(
         "/v1/billing/vipps/activate",
         headers={"X-User-Id": user_id},
@@ -214,7 +214,7 @@ def run_checks() -> int:
     # --------------------------------------------------------------------------
     # 5. Multi-Tenant Scoping & Active Data Access
     # --------------------------------------------------------------------------
-    print("\n[Step 5/8] Verifying Multi-Tenant Scoped Access for Active Athlete...")
+    print("\n[Step 5/9] Verifying Multi-Tenant Scoped Access for Active Athlete...")
     # Add workout to user's isolated store
     user_store_doc = {
         "id": "workout-today",
@@ -232,7 +232,7 @@ def run_checks() -> int:
     # --------------------------------------------------------------------------
     # 6. Vipps Lifecycle Webhook (Subscription Stopped / Expired)
     # --------------------------------------------------------------------------
-    print("\n[Step 6/8] Testing Vipps Webhook Lifecycle (Cancellation / Stop)...")
+    print("\n[Step 6/9] Testing Vipps Webhook Lifecycle (Cancellation / Stop)...")
     stop_event = {
         "agreementId": mock_vipps_agreement_id,
         "status": "STOPPED",
@@ -249,7 +249,7 @@ def run_checks() -> int:
     # --------------------------------------------------------------------------
     # 7. Stripe Provider Fallback & HMAC Webhook Verification
     # --------------------------------------------------------------------------
-    print("\n[Step 7/8] Testing Stripe Provider Fallback & HMAC Webhook...")
+    print("\n[Step 7/9] Testing Stripe Provider Fallback & HMAC Webhook...")
     stripe_user_id = "athlete-stripe-77"
     store.put("users", stripe_user_id, {
         "id": stripe_user_id,
@@ -297,7 +297,7 @@ def run_checks() -> int:
     # --------------------------------------------------------------------------
     # 8. Multi-Tenant Intervals Credentials & Sync Execution
     # --------------------------------------------------------------------------
-    print("\n[Step 8/8] Testing Per-Tenant Intervals Credentials & Background Sync...")
+    print("\n[Step 8/9] Testing Per-Tenant Intervals Credentials & Background Sync...")
     # Re-activate user for credentials setup
     store.put("users", user_id, {
         "id": user_id,
@@ -358,6 +358,52 @@ def run_checks() -> int:
     print("  ✓ Multi-tenant background sync runner correctly scoped to active subscribers")
     passes += 1
 
+    # -------------------------------------------------------------------------
+    # 9. Owner Payment Wall Bypass & Auto-Healing
+    # -------------------------------------------------------------------------
+    print("\n[Step 9/9] Testing Owner Payment Wall Bypass & Auto-Healing...")
+    owner_uid = "N0lThhWrg4YfdoYwHjJbvl5swmk2"
+    owner_email = "magne@fam-lima.net"
+
+    # Pre-seed owner with pending_payment to test auto-healing
+    store.documents[("users", owner_uid)] = {
+        "id": owner_uid,
+        "email": owner_email,
+        "status": "pending_payment",
+        "role": "athlete",
+        "is_owner": False,
+    }
+
+    # Owner profile call auto-heals to active + owner
+    prof_res = client.get("/v1/user/profile", headers={"X-User-Id": owner_uid})
+    assert prof_res.status_code == 200
+    assert prof_res.json()["status"] == "active"
+    assert prof_res.json()["role"] == "owner"
+    assert prof_res.json()["is_owner"] is True
+    print("  ✓ Existing owner profile auto-healed from 'pending_payment' to 'active'")
+
+    # Owner can register with email directly and get active status
+    owner_by_email_uid = "owner-by-email-uid-1"
+    reg_email_res = client.post(
+        "/v1/user/register",
+        headers={"X-User-Id": owner_by_email_uid},
+        json={"email": "magne@fam-lima.net", "display_name": "Magne", "terms_accepted": True},
+    )
+    assert reg_email_res.status_code == 201
+    assert reg_email_res.json()["status"] == "active"
+    assert reg_email_res.json()["role"] == "owner"
+    print("  ✓ Registration with owner email automatically bypasses payment wall (status: active, role: owner)")
+
+    # Owner can configure credentials without active subscription barrier
+    cred_res = client.post(
+        "/v1/user/intervals-credentials",
+        headers={"X-User-Id": owner_uid},
+        json={"api_key": "owner_intervals_key", "athlete_id": "owner_ath_1"},
+    )
+    assert cred_res.status_code == 200
+    print("  ✓ Owner exempt from subscription requirement for intervals credentials")
+    passes += 1
+
     elapsed = time.time() - start_time
     print("\n" + "=" * 72)
     print(f"  RESULTS: {passes}/{total} CHECKS PASSED (completed in {elapsed:.2f}s)")
@@ -367,6 +413,7 @@ def run_checks() -> int:
     print("    - Stripe fallback subscription & HMAC-SHA256 webhook verification")
     print("    - Lifecycle transitions (pending_payment -> active -> inactive)")
     print("    - Per-tenant Intervals.icu credentials & background sync isolation")
+    print("    - Owner payment wall bypass & profile auto-healing")
     print("=" * 72 + "\n")
     return 0
 

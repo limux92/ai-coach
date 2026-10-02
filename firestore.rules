@@ -205,7 +205,7 @@ service cloud.firestore {
         (!('photoURL' in data) || isValidUrl(data.photoURL)) &&
         (!('avatarUrl' in data) || isValidUrl(data.avatarUrl)) &&
         (!('status' in data) || (data.status is string && data.status in ['pending_payment', 'active', 'trialing', 'canceled', 'past_due', 'paused', 'inactive'])) &&
-        (!('role' in data) || (data.role is string && data.role in ['athlete', 'user', 'client', 'coach', 'member'])) &&
+        (!('role' in data) || (data.role is string && data.role in ['athlete', 'user', 'client', 'coach', 'member', 'owner'])) &&
         (!('bio' in data) || (data.bio is string && data.bio.size() <= 500)) &&
         (!('timezone' in data) || (data.timezone is string && data.timezone.size() <= 100)) &&
         (!('preferences' in data) || data.preferences is map) &&

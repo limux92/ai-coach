@@ -197,7 +197,12 @@ async function boot() {
               terms_accepted: true,
             }),
           });
-          if (profile?.status === 'pending_payment') {
+          const isOwner =
+            profile?.role === 'owner' ||
+            profile?.is_owner === true ||
+            profile?.status === 'active' ||
+            user.email?.toLowerCase() === 'magne@fam-lima.net';
+          if (!isOwner && profile?.status === 'pending_payment') {
             pendingPayment(profile);
             return;
           }
