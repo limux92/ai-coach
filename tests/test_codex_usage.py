@@ -129,10 +129,12 @@ def test_sync_is_idempotent_and_manual_and_local_tasks_survive(modules, tmp_path
     usage.sync(reader, workload.DIRECTORY)
     assert snapshot.stat().st_mtime_ns == stamp
     workload.record_task('gpt-oss', 'Local draft', 'done', task_id='local', prompt_tokens=50, output_tokens=10)
+    workload.record_task('qwen', 'Qwen draft', 'done', task_id='qwen', model='qwen3.8:27b-q4_K_M', output_tokens=20)
     workload.rebuild()
     result = (workload.DIRECTORY / 'workload.html').read_text()
     assert 'Review draft' in result and 'Local draft' in result and 'Prompt 1' in result
-    assert len(workload._read_tasks(workload.DIRECTORY)) == 2
+    assert 'Qwen draft' in result and 'qwen3.8:27b-q4_K_M' in result
+    assert len(workload._read_tasks(workload.DIRECTORY)) == 3
 
 
 def test_renderer_handles_unknown_escapes_and_does_not_double_count(modules):

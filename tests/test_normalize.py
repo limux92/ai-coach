@@ -84,6 +84,13 @@ class NormalizationTests(unittest.TestCase):
         with self.assertRaises(NormalizationError):
             normalize_activity(self.activity(start_date="2026-09-15T05:30:00"), athlete_id="123")
 
+    def test_normalize_activity_preserves_ftp_and_power_model_cp(self):
+        doc = normalize_activity(self.activity(icu_ftp=285, icu_pm_cp=275, icu_pm_w_prime=18500),
+                                 athlete_id="123")
+        self.assertEqual(doc["analysis"]["ftp_w"], 285)
+        self.assertEqual(doc["analysis"]["model_cp_w"], 275)
+        self.assertEqual(doc["analysis"]["model_w_prime_j"], 18500)
+
     def test_non_workouts_are_separate_calendar_events(self):
         for category in ["NOTE", "RACE_A", "RACE", None]:
             payload = {"id": 1, "category": category, "start_date_local": "2026-09-15T00:00:00"}

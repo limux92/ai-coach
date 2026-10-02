@@ -1,0 +1,281 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: schema/{doc}
+//   System-wide schema metadata and collection documentation.
+//   Fields:
+//     - version: int - Schema version integer
+//     - collections: list - Array of known system collection names
+//     - workouts: string - Description of workouts collection
+//     - planned_workouts: string - Description of planned workouts
+//     - wellness: string - Description of daily wellness records
+//     - training_summaries: string - Description of rollup summaries
+//     - summary_jobs: string - Description of durable invalidations
+//     - source_attribution: string - Description of source attribution
+//   Access: Read-only for authenticated clients (request.auth != null);
+//           write forbidden to all client SDKs (allow write: if false).
+//
+// Collection: users/{userId}
+//   Tenant root document and user account profile.
+//   Document ID: Must match request.auth.uid.
+//   Fields:
+//     - uid: string (optional, 1-128 chars, immutable, must match userId)
+//     - id: string (optional, 1-128 chars, immutable, must match userId)
+//     - email: string (optional, 3-254 chars, valid email format)
+//     - displayName: string (optional, 1-100 chars)
+//     - name: string (optional, 1-100 chars)
+//     - photoURL: string (optional, 1-2048 chars, valid http/https URL)
+//     - avatarUrl: string (optional, 1-2048 chars, valid http/https URL)
+//     - status: string (optional, enum: 'pending_payment', 'active', 'trialing', 'canceled', 'past_due', 'paused', 'inactive')
+//     - role: string (optional, enum: 'athlete', 'user', 'client', 'coach', 'member' - non-escalatable, no admin)
+//     - bio: string (optional, 0-500 chars)
+//     - timezone: string (optional, 1-100 chars)
+//     - preferences: map (optional user preferences)
+//     - settings: map (optional user configuration)
+//     - metadata: map (optional metadata)
+//     - createdAt: timestamp | string (optional, immutable)
+//     - updatedAt: timestamp | string (optional)
+//     - lastLoginAt: timestamp | string (optional)
+//   Access: Isolated strictly to the authenticated document owner (request.auth.uid == userId).
+//
+// Collection: users/{userId}/{subcollection}/{docId=**}
+//   Tenant-isolated athlete resources, telemetry, and background job states.
+//   Subcollections include:
+//     - workouts: Completed activities, metrics, FIT data pointers
+//     - planned_workouts: Scheduled workouts and training plans
+//     - wellness: Daily athlete metrics (sleep, resting HR, HRV, soreness)
+//     - observations: Coach and AI observations / insights
+//     - sync_state: Provider sync tokens, cursors, lease state
+//     - sync_runs: Historical audit logs of synchronization runs
+//     - athletes: Athlete profile and physiological settings
+//     - physiology_models: Critical Power (CP), W', zones, thresholds
+//     - physiology_revisions: Historical model changes and audit log
+//     - physiology_jobs: Background processing queues
+//     - physiology_efforts: Peak power/pace curve data
+//     - physiology_analyses: Deep physiological model outputs
+//     - physiology_contexts: Rolling EWMA warmup and training context
+//     - training_summaries: Rollup metrics by day/week/month
+//   Access: Isolated strictly to the authenticated tenant owner (request.auth.uid == userId).
+//
+// Default Deny:
+//   All root collections and unmatched paths are denied for reads and writes.
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    // Check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Check if authenticated user owns the tenant partition
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Check if user is owner based on document's uid field
+    function isDocOwner() {
+      return isAuthenticated() && resource != null && request.auth.uid == resource.data.uid;
+    }
+
+    // Verify UID hasn't been tampered with on create
+    function uidUnchanged() {
+      return !('uid' in request.resource.data) ||
+        request.resource.data.uid == request.auth.uid;
+    }
+
+    // Ensure UID field is not modified on update
+    function uidNotModified() {
+      return !('uid' in request.resource.data) ||
+        (resource != null && request.resource.data.uid == resource.data.uid);
+    }
+
+    // Validate required fields exist
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    // Validate that document contains only allowed fields
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // Validate that protected fields have not changed on update
+    function areImmutableFieldsUnchanged(fields) {
+      return resource == null || !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    // Validate string length bounds
+    function validStringLength(field, minLen, maxLen) {
+      return request.resource.data[field] is string &&
+        request.resource.data[field].size() >= minLen &&
+        request.resource.data[field].size() <= maxLen;
+    }
+
+    // Validate optional string bounds
+    function isValidOptionalString(field, minLen, maxLen) {
+      return !(field in request.resource.data) ||
+        (request.resource.data[field] is string &&
+         request.resource.data[field].size() >= minLen &&
+         request.resource.data[field].size() <= maxLen);
+    }
+
+    // Validate URL format (http/https) and maximum length
+    function isValidUrl(url) {
+      return url is string &&
+        url.size() <= 2048 &&
+        (url.matches("^https://.*") || url.matches("^http://.*"));
+    }
+
+    // Validate email format and RFC 5321 length limit
+    function isValidEmail(email) {
+      return email is string &&
+        email.size() <= 254 &&
+        email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    // Validate optional email
+    function isValidOptionalEmail(field) {
+      return !(field in request.resource.data) || isValidEmail(request.resource.data[field]);
+    }
+
+    // Validate optional URL
+    function isValidOptionalUrl(field) {
+      return !(field in request.resource.data) || isValidUrl(request.resource.data[field]);
+    }
+
+    // Validate ISO 8601 date string format
+    function isValidDateString(dateStr) {
+      return dateStr is string &&
+        dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+    }
+
+    // Validate user-scoped storage path
+    function isScopedPath(path) {
+      return path is string && path.matches("^users/" + request.auth.uid + "/.*");
+    }
+
+    // Validate positive numeric value
+    function isPositive(field) {
+      return request.resource.data[field] is number && request.resource.data[field] > 0;
+    }
+
+    // Validate list type and bounded size
+    function isValidList(listData, maxSize) {
+      return listData is list && listData.size() <= maxSize;
+    }
+
+    // Validate map type and allowed keys
+    function isValidMap(mapData, allowedKeys) {
+      return mapData is map && mapData.keys().hasOnly(allowedKeys);
+    }
+
+    // Validate recent timestamp within 5 minutes
+    function isRecent(time) {
+      return time is timestamp &&
+        time > request.time - duration.value(5, 'm') &&
+        time <= request.time;
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    // Base validation for user profile documents
+    function isValidUser(data, userId) {
+      let allowed = [
+        'uid', 'id', 'email', 'displayName', 'name', 'photoURL', 'avatarUrl',
+        'status', 'role', 'bio', 'timezone', 'preferences', 'settings',
+        'createdAt', 'updatedAt', 'lastLoginAt', 'metadata'
+      ];
+      return data.keys().hasOnly(allowed) &&
+        (!('uid' in data) || (data.uid is string && data.uid == userId && data.uid == request.auth.uid)) &&
+        (!('id' in data) || (data.id is string && data.id == userId)) &&
+        (!('email' in data) || isValidEmail(data.email)) &&
+        (!('displayName' in data) || (data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100)) &&
+        (!('name' in data) || (data.name is string && data.name.size() >= 1 && data.name.size() <= 100)) &&
+        (!('photoURL' in data) || isValidUrl(data.photoURL)) &&
+        (!('avatarUrl' in data) || isValidUrl(data.avatarUrl)) &&
+        (!('status' in data) || (data.status is string && data.status in ['pending_payment', 'active', 'trialing', 'canceled', 'past_due', 'paused', 'inactive'])) &&
+        (!('role' in data) || (data.role is string && data.role in ['athlete', 'user', 'client', 'coach', 'member'])) &&
+        (!('bio' in data) || (data.bio is string && data.bio.size() <= 500)) &&
+        (!('timezone' in data) || (data.timezone is string && data.timezone.size() <= 100)) &&
+        (!('preferences' in data) || data.preferences is map) &&
+        (!('settings' in data) || data.settings is map) &&
+        (!('metadata' in data) || data.metadata is map) &&
+        (!('createdAt' in data) || data.createdAt is timestamp || (data.createdAt is string && data.createdAt.size() <= 50)) &&
+        (!('updatedAt' in data) || data.updatedAt is timestamp || (data.updatedAt is string && data.updatedAt.size() <= 50));
+    }
+
+    // Validation for user document creation
+    function isValidUserCreate(userId) {
+      return isValidUser(request.resource.data, userId) &&
+        (!('role' in request.resource.data) || request.resource.data.role != 'admin');
+    }
+
+    // Validation for user document update
+    function isValidUserUpdate(userId) {
+      return isValidUser(request.resource.data, userId) &&
+        areImmutableFieldsUnchanged(['uid', 'id', 'createdAt', 'role']);
+    }
+
+    // Validation for tenant subcollection documents
+    function isValidSubcollectionDoc(userId) {
+      let data = request.resource.data;
+      return data is map &&
+        data.keys().size() <= 200 &&
+        (!('userId' in data) || data.userId == userId) &&
+        (!('uid' in data) || data.uid == userId) &&
+        (!('ownerId' in data) || data.ownerId == userId);
+    }
+
+    // Immutability checks for subcollection updates
+    function isSubcollectionUpdateSafe() {
+      let current = resource.data;
+      let next = request.resource.data;
+      return (!('userId' in next) || !('userId' in current) || next.userId == current.userId) &&
+        (!('uid' in next) || !('uid' in current) || next.uid == current.uid) &&
+        (!('ownerId' in next) || !('ownerId' in current) || next.ownerId == current.ownerId) &&
+        (!('createdAt' in current) || !('createdAt' in next) || next.createdAt == current.createdAt);
+    }
+
+    // ===============================================================
+    // Collection Match Rules
+    // ===============================================================
+
+    // Root default-deny: reject all reads and writes on unmatched collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // System-wide schema metadata: authenticated read-only, client writes forbidden
+    match /schema/{doc} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    // User tenant root document: strictly isolated to document owner
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUserCreate(userId);
+      allow update: if isOwner(userId) && isValidUserUpdate(userId);
+      allow delete: if isOwner(userId);
+    }
+
+    // Tenant-isolated subcollections (workouts, wellness, sync_state, physiology_models, etc.)
+    match /users/{userId}/{subcollection}/{docId=**} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidSubcollectionDoc(userId);
+      allow update: if isOwner(userId) && isValidSubcollectionDoc(userId) && isSubcollectionUpdateSafe();
+      allow delete: if isOwner(userId);
+    }
+  }
+}

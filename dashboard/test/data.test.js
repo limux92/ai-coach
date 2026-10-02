@@ -11,6 +11,10 @@ import {
   weekSeries,
   category,
   escapeHTML,
+  STANDARD_MMP_BUCKETS,
+  bestRollingPower,
+  criticalPowerCurve,
+  extractMmpEnvelope,
 } from '../src/data.js';
 
 test('calendar starts on Monday, includes the full leap month, and crosses years safely', () => {
@@ -94,4 +98,49 @@ test('month calendar totals exclude adjacent-month cards while week totals inclu
   );
   assert.equal(week.count, 2);
   assert.equal(week.distance, 9200);
+});
+
+test('bestRollingPower calculates rolling maximum power and handles gaps/short series', () => {
+  const samples = [100, 200, 300, 400, 500];
+  const mmp = bestRollingPower(samples, [1, 3, 5, 10]);
+  assert.deepEqual(mmp, [
+    { duration: 1, power: 500 },
+    { duration: 3, power: 400 },
+    { duration: 5, power: 300 },
+    { duration: 10, power: null },
+  ]);
+
+  // Object samples with power field and missing/null values
+  const objSamples = [{ power: 250 }, { power: null }, { power: 350 }, { power: 400 }];
+  const mmpObj = bestRollingPower(objSamples, [1, 2]);
+  assert.equal(mmpObj[0].power, 400);
+  assert.equal(mmpObj[1].power, 375); // (350 + 400) / 2
+});
+
+test('criticalPowerCurve computes theoretical hyperbolic power P(t) = CP + W_prime / t', () => {
+  const curve = criticalPowerCurve(250, 18000, [60, 300, 1200, 3600]);
+  assert.deepEqual(curve, [
+    { duration: 60, power: 550 }, // 250 + 18000/60 = 250 + 300 = 550
+    { duration: 300, power: 310 }, // 250 + 18000/300 = 250 + 60 = 310
+    { duration: 1200, power: 265 }, // 250 + 18000/1200 = 250 + 15 = 265
+    { duration: 3600, power: 255 }, // 250 + 18000/3600 = 250 + 5 = 255
+  ]);
+
+  assert.deepEqual(criticalPowerCurve(0, 18000), []);
+  assert.deepEqual(criticalPowerCurve(250, -100), []);
+});
+
+test('extractMmpEnvelope combines workout samples and falls back gracefully to metrics', () => {
+  const workouts = [
+    { samples: [200, 250, 300, 350, 400] },
+    { metrics: { moving_time_s: 1800, average_power_w: 220, max_power_w: 600 } },
+  ];
+  const envelope = extractMmpEnvelope(workouts, [1, 5, 300]);
+  const p1 = envelope.find((e) => e.duration === 1);
+  const p5 = envelope.find((e) => e.duration === 5);
+  const p300 = envelope.find((e) => e.duration === 300);
+
+  assert.equal(p1.power, 600); // max_power_w from metrics
+  assert.equal(p5.power, 576); // max_power_w * 0.96
+  assert.equal(p300.power, 220); // average_power_w from 1800s ride
 });

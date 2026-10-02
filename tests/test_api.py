@@ -15,6 +15,14 @@ from ai_coach.config import Settings
 from ai_coach.storage import safe_id
 
 
+def test_static_health_never_reads_training_store(monkeypatch):
+    monkeypatch.setattr(main, "store", lambda: pytest.fail("Static health must not read data"))
+    with TestClient(main.app) as client:
+        response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"service": "ai-coach-data", "status": "ok", "version": "0.1.0"}
+
+
 class MemoryStore:
     def __init__(self):
         self.documents = {}
@@ -335,3 +343,43 @@ def test_small_valid_targets_accepts(api):
     response = client.post("/v1/planned-workouts", json=plan_body(targets={"effort": "moderate"}))
     assert response.status_code == 201
     assert len(memory.documents) == 1
+
+
+def test_user_register_creates_pending_payment_and_profile_retrieves_it(api):
+    client, memory = api
+    headers = {"x-user-id": "athlete-test-1"}
+    body = {"email": "athlete@example.com", "display_name": "New Runner"}
+    response = client.post("/v1/user/register", json=body, headers=headers)
+    assert response.status_code == 201
+    data = response.json()
+    assert data["id"] == "athlete-test-1"
+    assert data["email"] == "athlete@example.com"
+    assert data["display_name"] == "New Runner"
+    assert data["status"] == "pending_payment"
+    assert data["role"] == "athlete"
+
+    # Profile retrieves it
+    prof_res = client.get("/v1/user/profile", headers=headers)
+    assert prof_res.status_code == 200
+    assert prof_res.json()["id"] == "athlete-test-1"
+
+    # Idempotent call returns existing 200
+    idemp_res = client.post("/v1/user/register", json=body, headers=headers)
+    assert idemp_res.status_code == 200
+    assert idemp_res.json()["id"] == "athlete-test-1"
+
+
+def test_user_register_owner_is_active(api, monkeypatch):
+    client, memory = api
+    monkeypatch.setenv("FIREBASE_OWNER_UID", "owner-athlete-id")
+    headers = {"x-user-id": "owner-athlete-id"}
+    body = {"email": "owner@example.com", "display_name": "Coach Magne"}
+    response = client.post("/v1/user/register", json=body, headers=headers)
+    assert response.status_code == 201
+    assert response.json()["status"] == "active"
+
+
+def test_user_routes_require_user_id(api):
+    client, _ = api
+    assert client.post("/v1/user/register", json={"email": "a@b.com"}).status_code == 401
+    assert client.get("/v1/user/profile").status_code == 401

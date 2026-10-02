@@ -150,7 +150,7 @@ def render_report(tasks: list[dict], codex_turns: list[dict] | None = None) -> s
             <h1>Codex + Local Workers</h1>
             <p>Report rebuilt: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC</p>
             <div class="workflow" aria-label="Delegation workflow">
-                <span>Codex · Plan &amp; divide</span> → <span>Local model · Draft &amp; iterate</span> → <span>Codex · Review &amp; verify</span>
+                <span>Gemini · Design &amp; review</span> → <span>Codex · Split &amp; implement</span> → <span>Qwen · Bounded draft</span> → <span>Codex · Verify &amp; integrate</span>
             </div>
             <div class="metrics">
             <div class="card">

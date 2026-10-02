@@ -16,7 +16,47 @@ export function bindEvents(state, drawerRoot, actions) {
     const target = event.target.closest('button, [data-action]');
     if (!target) return;
     const action = target.dataset.action;
+    if (action === 'auth-mode') return void actions.setAuthMode?.(target.dataset.mode);
     if (action === 'login') return void signIn();
+    if (action === 'checkout') return void actions.checkout?.();
+    if (action === 'toggle-terms') {
+      const box = document.getElementById('terms-box');
+      if (box) box.classList.toggle('hidden');
+      return;
+    }
+    if (action === 'open-intervals') {
+      state.showIntervalsModal = true;
+      return void shell();
+    }
+    if (action === 'close-intervals') {
+      state.showIntervalsModal = false;
+      return void shell();
+    }
+    if (action === 'save-intervals') {
+      const key = document.querySelector('#intervals-api-key')?.value?.trim();
+      const id = document.querySelector('#intervals-athlete-id')?.value?.trim();
+      const err = document.querySelector('#intervals-error');
+      if (!key || !id) {
+        if (err) {
+          err.textContent = 'Please provide both API key and Athlete ID.';
+          err.style.display = 'block';
+        }
+        return;
+      }
+      return void actions
+        .saveIntervalsCredentials?.(key, id)
+        .then(() => {
+          state.showIntervalsModal = false;
+          return loadData();
+        })
+        .catch((e) => {
+          if (err) {
+            err.textContent = e?.message || 'Failed to save credentials';
+            err.style.display = 'block';
+          }
+        });
+    }
+    if (action === 'billing-portal') return void actions.openPortal?.();
     if (action === 'logout') {
       clearSession();
       return void logout();

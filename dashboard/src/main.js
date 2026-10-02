@@ -15,11 +15,12 @@ import { createApi } from './api.js';
 import { createWorkoutController } from './workout-controller.js';
 import { bindEvents } from './events.js';
 import { shell as renderShell } from './views/shell.js';
-import { loginScreen as renderLogin } from './views/login.js';
+import { loginScreen as renderLogin, pendingPaymentScreen } from './views/login.js';
 
 const root = document.querySelector('#app');
 const drawerRoot = document.querySelector('#drawer-root');
 const state = {
+  authMode: 'signin',
   view: 'overview',
   sport: 'all',
   calendarMode: 'month',
@@ -29,6 +30,7 @@ const state = {
   workouts: [],
   plans: [],
   status: null,
+  context: null,
   loading: true,
   error: null,
   drawer: null,
@@ -47,7 +49,10 @@ const shell = () => {
   root.innerHTML = renderShell(state, config);
 };
 const loginScreen = (message) => {
-  root.innerHTML = renderLogin(message);
+  root.innerHTML = renderLogin(message, state.authMode);
+};
+const pendingPayment = (user) => {
+  root.innerHTML = pendingPaymentScreen(user);
 };
 
 async function loadData() {
@@ -62,10 +67,10 @@ async function loadData() {
   const grid = calendarDays(state.month);
   const ending =
     state.month.slice(0, 7) === state.today.slice(0, 7) ? state.today : monthEnd(state.month);
-  const starts = [grid[0], addDays(monday(ending), -77), state.week].sort();
+  const starts = [grid[0], addDays(monday(ending), -126), state.week].sort();
   const ends = [grid.at(-1), addDays(state.week, 6)].sort();
   try {
-    const [workouts, plans, status] = await Promise.all([
+    const [workouts, plans, status, context] = await Promise.all([
       fetchPages('/workouts', starts[0], ends.at(-1), activeController.signal),
       fetchPages(
         '/planned-workouts',
@@ -74,11 +79,13 @@ async function loadData() {
         activeController.signal,
       ),
       api('/status', activeController.signal),
+      api('/context', activeController.signal).catch(() => null),
     ]);
     if (request !== state.request) return;
     state.workouts = [...new Map(workouts.map((w) => [w.id, w])).values()];
     state.plans = [...new Map(plans.map((w) => [w.id, w])).values()];
     state.status = status;
+    state.context = context;
   } catch (error) {
     if (request !== state.request || error.name === 'AbortError') return;
     state.error = error.message;
@@ -94,6 +101,42 @@ async function signIn() {
     await signInWithPopup(auth, new GoogleAuthProvider());
   } catch {
     loginScreen('Couldn’t open secure sign-in. Please try again.');
+  }
+}
+
+async function checkout() {
+  const termsCheckbox = document.getElementById('terms-checkbox');
+  if (termsCheckbox && !termsCheckbox.checked) {
+    const errorEl = document.getElementById('terms-error');
+    if (errorEl) {
+      errorEl.textContent = 'Vennligst godta salgsbetingelsene før du fortsetter.';
+      errorEl.style.display = 'block';
+    }
+    return;
+  }
+  const button = document.querySelector('[data-action="checkout"]');
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Videresender til betaling...';
+  }
+  try {
+    const res = await api('/billing/checkout', null, { method: 'POST' });
+    if (res?.checkout_url) {
+      window.location.href = res.checkout_url;
+    } else {
+      loginScreen('Betalingsøkt kunne ikke opprettes. Vennligst prøv igjen.');
+    }
+  } catch (err) {
+    loginScreen(err?.message || 'Kunne ikke koble til betalingstjenesten. Vennligst prøv igjen.');
+  }
+}
+
+async function openPortal() {
+  try {
+    const res = await api('/billing/portal', null, { method: 'POST' });
+    if (res?.portal_url) window.location.href = res.portal_url;
+  } catch {
+    // Portal unavailable
   }
 }
 
@@ -130,8 +173,41 @@ async function boot() {
     }
     onAuthStateChanged(auth, async (user) => {
       clearSession();
-      if (user) await loadData();
-      else loginScreen();
+      if (user) {
+        const params = new URLSearchParams(window.location.search);
+        const agreementId = params.get('agreement_id');
+        if (agreementId) {
+          try {
+            await api('/billing/vipps/activate', null, {
+              method: 'POST',
+              body: JSON.stringify({ agreement_id: agreementId }),
+            });
+            window.history.replaceState({}, document.title, window.location.pathname);
+          } catch {
+            // continue
+          }
+        }
+        try {
+          const profile = await api('/user/register', null, {
+            method: 'POST',
+            body: JSON.stringify({
+              email: user.email,
+              display_name: user.displayName,
+              timezone: config.timezone,
+              terms_accepted: true,
+            }),
+          });
+          if (profile?.status === 'pending_payment') {
+            pendingPayment(profile);
+            return;
+          }
+        } catch {
+          // If register fails or backend is unreachable, fallback to normal loadData()
+        }
+        await loadData();
+      } else {
+        loginScreen();
+      }
     });
   } catch (error) {
     root.innerHTML = /* HTML */ `<main id="main" class="setup-state">
@@ -146,13 +222,28 @@ async function boot() {
 
 bindEvents(state, drawerRoot, {
   signIn,
+  checkout,
+  openPortal,
+  setAuthMode: (mode) => {
+    state.authMode = mode;
+    loginScreen();
+  },
   clearSession,
   logout: () => signOut(auth),
   closeDrawer,
   loadSamples,
   renderDrawer,
   openDrawer,
-  shell,
+  saveIntervalsCredentials: async (apiKey, athleteId) => {
+    await api('/user/intervals-credentials', null, {
+      method: 'POST',
+      body: JSON.stringify({ api_key: apiKey, athlete_id: athleteId }),
+    });
+    await api('/user/sync', null, {
+      method: 'POST',
+      body: JSON.stringify({ backfill: true }),
+    }).catch(() => {});
+  },
   loadData,
 });
 void boot();

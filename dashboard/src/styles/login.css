@@ -25,12 +25,106 @@
   line-height: 1.7;
 }
 .login-button {
-  margin-top: 28px;
+  margin-top: 18px;
   padding: 12px 18px;
+}
+.auth-mode-toggle {
+  display: inline-flex;
+  gap: 6px;
+  margin: 20px auto 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+}
+.auth-toggle-btn {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.auth-toggle-btn.active {
+  background: var(--surface-hover);
+  color: var(--text);
+  font-weight: 600;
+}
+.onboarding-box {
+  margin: 24px auto 0;
+  max-width: 440px;
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-align: center;
+}
+.onboarding-box p {
+  margin: 12px 0 18px;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+.checkout-button {
+  width: 100%;
+  padding: 12px;
 }
 .login-error {
   margin-top: 18px;
   color: var(--danger);
+}
+.terms-section {
+  margin: 16px 0;
+  text-align: left;
+}
+.terms-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  cursor: pointer;
+  line-height: 1.4;
+}
+.terms-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+}
+.terms-note {
+  margin: 14px auto 0 !important;
+  font-size: 0.85rem !important;
+  color: var(--muted);
+}
+.terms-box {
+  margin-top: 10px;
+  padding: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--muted);
+  max-height: 160px;
+  overflow-y: auto;
+}
+.terms-box h4 {
+  margin: 0 0 6px;
+  color: var(--text);
+  font-size: 0.85rem;
+}
+.terms-box p {
+  margin: 0 0 6px !important;
+  font-size: 0.8rem !important;
+}
+.terms-box.hidden {
+  display: none;
 }
 @media (max-width: 760px) {
   .login-page {

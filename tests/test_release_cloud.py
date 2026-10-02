@@ -179,8 +179,106 @@ def test_authenticated_backend_probe_reads_only_static_health(monkeypatch):
     monkeypatch.setattr(health, "http", http)
     health.probe_backend("https://candidate.run.app")
     assert len(calls) == 2
-    assert all(url == "https://candidate.run.app/healthz" for url, _ in calls)
+    assert all(url == "https://candidate.run.app/health" for url, _ in calls)
     assert calls[1][1]["headers"] == {"Authorization": "Bearer test-only-token"}
+
+
+@pytest.mark.parametrize("migration", [False, True])
+@pytest.mark.parametrize("status,body", [
+    (404, b'{"detail":"Not Found"}'), (404, b"Google frontend 404"),
+    (403, b"denied"), (500, b"failed"), (200, b'{"status":"wrong"}')])
+def test_health_migration_only_permits_application_missing_route(monkeypatch, migration, status, body):
+    monkeypatch.setattr(health, "identity_token", lambda: "test-token")
+    monkeypatch.setattr(health, "http", lambda _, **kw: health.Response(
+        status if kw.get("headers") else 403, {}, body))
+    if migration and status == 404 and body == b'{"detail":"Not Found"}':
+        assert health.probe_backend("https://old.run.app", allow_missing_health=True) == "missing-route"
+    else:
+        with pytest.raises(ReleaseError):
+            health.probe_backend("https://old.run.app", allow_missing_health=migration)
+
+
+@pytest.mark.parametrize("status", [200, 401, 404, 500])
+def test_health_migration_still_requires_anonymous_403(monkeypatch, status):
+    monkeypatch.setattr(health, "http", lambda *a, **k: health.Response(status, {}, b""))
+    monkeypatch.setattr(health, "identity_token", lambda: pytest.fail("Must reject anonymous response first"))
+    with pytest.raises(ReleaseError, match="deny anonymous"):
+        health.probe_backend("https://old.run.app", allow_missing_health=True)
+
+
+def test_migration_requires_exact_revision_and_candidates_remain_strict(monkeypatch):
+    fake = FakeCloud(monkeypatch)
+    calls = []
+    monkeypatch.setattr(cloud, "probe_backend", lambda origin, **kw: calls.append((origin, kw)) or "missing-route")
+    with pytest.raises(ReleaseError, match="exact existing"):
+        fake.subject.preflight(bootstrap_backend_health="wrong-revision")
+    assert calls == []
+    old = cloud.BACKEND_SERVICE + "-old"
+    fake.subject.preflight(bootstrap_backend_health=old)
+    assert calls == [(cloud.BACKEND_URL, {"allow_missing_health": True})]
+    assert fake.subject.receipt["backend_health_migration"] == {"from_revision": old, "existing_health": "missing-route"}
+    cloud.CloudRelease.probe(fake.subject, cloud.BACKEND_SERVICE, "https://candidate.run.app", {})
+    cloud.CloudRelease.probe(fake.subject, cloud.BACKEND_SERVICE, cloud.BACKEND_URL, {}, production=True)
+    assert calls[1:] == [("https://candidate.run.app", {}), (cloud.BACKEND_URL, {})]
+
+
+def failed_backend(fake):
+    revision = cloud.BACKEND_SERVICE + "-r-abcdef12-260927-061340-af98"
+    status = fake.state[cloud.BACKEND_SERVICE]["status"]
+    status["latestCreatedRevisionName"] = revision
+    status["conditions"] = [{"type": "Ready", "status": "False", "reason": "HealthCheckContainerError"}]
+    documents = {}
+    for name in (revision, status["latestReadyRevisionName"]):
+        documents[name] = {"metadata": {"name": name, "labels": {"serving.knative.dev/service": cloud.BACKEND_SERVICE}},
+                           "status": {"conditions": [{"type": "Ready", "status": "False" if name == revision else "True",
+                                                      "reason": "HealthCheckContainerError" if name == revision else ""}]}}
+    fake.subject.document = lambda *args: documents[args[3]]
+    return revision, documents
+
+
+def test_explicit_failed_candidate_recovery_retains_health_iam_and_gateway_gates(monkeypatch):
+    fake = FakeCloud(monkeypatch)
+    revision, _ = failed_backend(fake)
+    calls = []
+    monkeypatch.setattr(cloud, "probe_backend", lambda *a, **k: calls.append((a, k)))
+    with pytest.raises(ReleaseError, match="not ready"):
+        fake.subject.preflight()
+    fake.subject.preflight(recover_failed_backend_candidate=revision)
+    assert calls == [((cloud.BACKEND_URL,), {})]
+    assert fake.subject.receipt["failed_backend_candidate_recovery"]["serving_ready_verified"]
+    fake.state[cloud.SERVICE]["status"]["conditions"][0]["status"] = "False"
+    with pytest.raises(ReleaseError, match="not ready"):
+        fake.subject.preflight(recover_failed_backend_candidate=revision)
+    fake.state[cloud.SERVICE]["status"]["conditions"][0]["status"] = "True"
+    fake.state[cloud.BACKEND_SERVICE + "-iam"]["bindings"][0]["members"].append("allUsers")
+    with pytest.raises(ReleaseError, match="public IAM"):
+        fake.subject.preflight(recover_failed_backend_candidate=revision)
+
+
+@pytest.mark.parametrize("change", ["wrong-name", "wrong-latest", "traffic", "old-unready", "wrong-service",
+                                    "unknown-failure", "failed-ready", "service-unknown"])
+def test_failed_candidate_recovery_rejects_unverified_state(monkeypatch, change):
+    fake = FakeCloud(monkeypatch)
+    revision, documents = failed_backend(fake)
+    status = fake.state[cloud.BACKEND_SERVICE]["status"]
+    if change == "wrong-name":
+        revision = "some-other-revision"
+    elif change == "wrong-latest":
+        status["latestCreatedRevisionName"] = "other"
+    elif change == "traffic":
+        status["traffic"] = [{"revisionName": revision, "percent": 100}]
+    elif change == "old-unready":
+        documents[status["latestReadyRevisionName"]]["status"]["conditions"][0]["status"] = "False"
+    elif change == "wrong-service":
+        documents[revision]["metadata"]["labels"]["serving.knative.dev/service"] = "other"
+    elif change == "unknown-failure":
+        documents[revision]["status"]["conditions"][0]["reason"] = "other"
+    elif change == "failed-ready":
+        documents[revision]["status"]["conditions"][0]["status"] = "True"
+    else:
+        status["conditions"][0]["status"] = "Unknown"
+    with pytest.raises(ReleaseError):
+        fake.subject.preflight(recover_failed_backend_candidate=revision)
 
 
 def test_token_failure_does_not_expose_provider_output(monkeypatch, capsys):
@@ -196,6 +294,43 @@ def test_asset_hash_mismatch_blocks_verification(monkeypatch):
     with pytest.raises(ReleaseError, match="asset does not match"):
         health.probe_gateway(SimpleNamespace(public_url="https://canonical.run.app/mcp"),
                              "https://candidate.run.app", {"index.html": "expected"})
+
+
+@pytest.mark.parametrize("failure", [None, "asset", "config", "anonymous"])
+def test_production_checks_mcp_on_canonical_origin_and_dashboard_on_custom_domain(monkeypatch, failure):
+    import hashlib
+    settings = SimpleNamespace(public_url="https://canonical.run.app/mcp", firebase_project_id="test-project",
+                               firebase_api_key="public-browser-config")
+    calls = []
+    def http(url, **kwargs):
+        calls.append(url)
+        if url == "https://canonical.run.app/v1/health":
+            return health.Response(200, {}, b"healthy")
+        if url == health.DOMAIN + "/dashboard/index.html":
+            return health.Response(200, {}, b"wrong" if failure == "asset" else b"tested")
+        if url == health.DOMAIN + "/dashboard/config":
+            return health.Response(200, {}, json.dumps({"projectId": "wrong" if failure == "config" else "test-project",
+                                                        "apiKey": "public-browser-config"}).encode())
+        if url == health.DOMAIN + "/dashboard/api/status":
+            return health.Response(200 if failure == "anonymous" else 401, {}, b"")
+        if url == health.DOMAIN + "/":
+            return health.Response(302, {"location": "/dashboard/"}, b"")
+        if url == "https://www.aiworkoutbuilder.app/":
+            return health.Response(302, {"location": health.DOMAIN + "/"}, b"")
+        pytest.fail("Unexpected probe destination: " + url)
+    def adapter(settings, *, http):
+        assert http(settings.public_url.removesuffix("/mcp") + "/v1/health").status == 200
+    monkeypatch.setattr(health, "http", http)
+    monkeypatch.setattr(health, "probe_adapter", adapter)
+    def probe():
+        health.probe_gateway(settings, health.DOMAIN, {"index.html": hashlib.sha256(b"tested").hexdigest()}, production=True)
+    if failure:
+        with pytest.raises(ReleaseError):
+            probe()
+    else:
+        probe()
+        assert health.DOMAIN + "/dashboard/api/status" in calls
+        assert "https://canonical.run.app/v1/health" in calls
 
 
 @pytest.mark.parametrize("allocation", [{}, {"a": True}, {"a": 99}, {"A": 100}, {"a": "100"}, {"a": 101}, {"a": 0}])

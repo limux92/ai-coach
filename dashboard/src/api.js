@@ -1,7 +1,7 @@
 import { getIdToken } from 'firebase/auth';
 
 export function createApi(getAuthInstance) {
-  async function api(path, signal) {
+  async function api(path, signal, options = {}) {
     const auth = getAuthInstance();
     let token;
     try {
@@ -12,8 +12,12 @@ export function createApi(getAuthInstance) {
       e.auth = true;
       throw e;
     }
+    const headers = { Authorization: `Bearer ${token}`, ...(options.headers || {}) };
+    if (options.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
     const response = await fetch(`/dashboard/api${path}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      method: options.method || 'GET',
+      headers,
+      body: options.body,
       cache: 'no-store',
       signal,
     });

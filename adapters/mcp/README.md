@@ -15,6 +15,9 @@ The adapter uses the official `mcp==2.2.0` Python SDK and its `MCPServer` API. I
 | `list_planned_workouts` | `GET /v1/planned-workouts` | At most 366 inclusive calendar days; 1–100 records/page |
 | `list_wellness` | `GET /v1/wellness` | At most 366 inclusive calendar days; 1–100 records/page |
 | `get_workout_samples` | `GET /v1/workouts/{id}/samples` | Default 100 selected-field records; 1–1000/page, offset 0–1,000,000 |
+| `get_physiology_evidence` | `GET /v1/physiology/models/{id}`, `/analyses/{id}` or `/v1/workouts/{id}/physiology` | Exact versioned IDs from context |
+| `get_physiology_events` | `GET /v1/physiology/analyses/{id}/events` | Default 50, max 100 events/page |
+| `get_physiology_sessions` | `GET /v1/physiology/sessions` | Saved 7/28-day window; default 25, max 50 sessions/page |
 
 Pagination cursors and sample offsets are preserved. Responses above 64 KB are rejected with a safe message requesting a narrower query. No write operation, arbitrary URL, sync control, raw database query or Intervals credential is exposed.
 
@@ -54,3 +57,12 @@ Tests exercise real RSA signature verification and the OAuth endpoints, with
 mocked Google HTTP, synthetic records and a memory store. No training records or
 cloud writes are used. Build `dashboard/` before building the adapter image.
 The production adapter container uses Python 3.12.
+
+## Conversational coaching
+
+The ten tools retrieve deterministic data and physiology evidence. Planning takes
+place in the coaching conversation using [the system prompt](../../docs/AI_COACH_SYSTEM_PROMPT.md).
+The retired Quick Workout provider, recommendation routes and workout exporters
+are absent. The gateway does not call a paid model or generate FIT/ZWO workouts.
+Existing runtime configuration is preserved by a routine code release; unused
+provider settings or secret grants need a separate reviewed cleanup.

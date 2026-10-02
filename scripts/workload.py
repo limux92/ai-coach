@@ -13,7 +13,7 @@ from workload_report import render_report
 ROOT = Path(__file__).resolve().parents[1]
 DIRECTORY = ROOT / '.local/worker'
 STATUSES = ('planned', 'running', 'done', 'failed', 'incomplete')
-AGENTS = ('codex', 'gpt-oss')
+AGENTS = ('codex', 'gpt-oss', 'qwen')
 
 
 def _read_tasks(directory):

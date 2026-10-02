@@ -69,6 +69,17 @@ def test_missing_dashboard_client_does_not_disable_mcp(settings, key):
     assert tokens.calls == 0
 
 
+@pytest.mark.parametrize("path", ["/quick-workout", "/quick-workout/run"])
+def test_retired_recommendations_are_unavailable_after_owner_auth(settings, key, path):
+    app, tokens, _ = setup(settings, key, lambda request: pytest.fail("Retired route accessed backend"))
+    with client_for(app, settings) as client:
+        assert client.post("/dashboard/api" + path).status_code == 401
+        response = client.post("/dashboard/api" + path, headers=bearer(key, settings))
+        assert response.status_code == 404
+        assert response.headers["cache-control"] == "no-store"
+    assert tokens.calls == 0
+
+
 @pytest.mark.parametrize("path", ["/status", "/context", "/summaries?period=week&date=2026-09-16",
     "/workouts?oldest=2026-09-01&newest=2026-09-16", "/planned-workouts?oldest=2026-09-01&newest=2026-09-16",
     "/workouts/i-123", "/workouts/i-123/samples", "/not-a-route"])
@@ -174,7 +185,9 @@ def test_gateway_keeps_existing_response_size_bound(settings, key):
 
 
 def test_backend_allowlist_has_only_specific_dashboard_routes():
-    for path in ("/v1/dashboard/workouts", "/v1/dashboard/planned-workouts", "/v1/dashboard/workouts/i-123"):
+    for path in ("/v1/dashboard/workouts", "/v1/dashboard/planned-workouts", "/v1/dashboard/workouts/i-123",
+                 "/v1/user/register", "/v1/user/profile", "/v1/billing/checkout", "/v1/billing/portal",
+                 "/v1/billing/vipps/activate"):
         assert ALLOWED_ROUTES.fullmatch(path)
     for path in ("/v1/dashboard/status", "/v1/dashboard/workouts/i-123/samples", "/v1/dashboard/internal/sync",
                  "/v1/dashboard/workouts/https://attacker.example", "/v1/dashboard/workouts/i-123/anything"):
@@ -184,3 +197,98 @@ def test_backend_allowlist_has_only_specific_dashboard_routes():
 def test_dashboard_client_config_rejects_injection(settings):
     with pytest.raises(ValueError):
         Settings(**{**settings.__dict__, "firebase_api_key": "client\nsecret"})
+
+
+def test_user_registration_and_profile_gateway_forwarding(settings, key):
+    from dataclasses import replace
+    mt_settings = replace(settings, multi_tenant=True)
+    calls = []
+
+    def backend(request):
+        calls.append(request)
+        if request.url.path == "/v1/user/register":
+            return httpx.Response(201, json={"id": "new-athlete-sub", "status": "pending_payment"}, headers={"Content-Type": "application/json"})
+        if request.url.path == "/v1/user/profile":
+            return httpx.Response(200, json={"id": "new-athlete-sub", "status": "pending_payment"}, headers={"Content-Type": "application/json"})
+        return httpx.Response(404, json={"error": "not found"}, headers={"Content-Type": "application/json"})
+
+    app, _, _ = setup(mt_settings, key, backend)
+    with client_for(app, mt_settings) as client:
+        token = bearer(key, settings, sub="new-athlete-sub", email_verified=True)
+        # Register
+        reg_res = client.post("/dashboard/api/user/register", headers=token, json={"email": "new@example.com"})
+        assert reg_res.status_code == 200
+        assert reg_res.json()["status"] == "pending_payment"
+        assert calls[0].headers.get("x-user-id") == "new-athlete-sub"
+        assert json.loads(calls[0].content) == {"email": "new@example.com"}
+
+        # Profile
+        prof_res = client.get("/dashboard/api/user/profile", headers=token)
+        assert prof_res.status_code == 200
+        assert prof_res.json()["status"] == "pending_payment"
+        assert calls[1].headers.get("x-user-id") == "new-athlete-sub"
+
+
+def test_billing_gateway_forwarding(settings, key):
+    from dataclasses import replace
+    mt_settings = replace(settings, multi_tenant=True)
+    calls = []
+
+    def backend(request):
+        calls.append(request)
+        if request.url.path == "/v1/billing/checkout":
+            return httpx.Response(200, json={"checkout_url": "https://stripe.com/checkout"}, headers={"Content-Type": "application/json"})
+        if request.url.path == "/v1/billing/portal":
+            return httpx.Response(200, json={"portal_url": "https://stripe.com/portal"}, headers={"Content-Type": "application/json"})
+        if request.url.path == "/v1/billing/vipps/activate":
+            return httpx.Response(200, json={"status": "activated", "user_id": "athlete-sub-1"}, headers={"Content-Type": "application/json"})
+        if request.url.path == "/v1/user/intervals-credentials":
+            if request.method == "POST":
+                return httpx.Response(200, json={"status": "configured", "athlete_id": "i45678"}, headers={"Content-Type": "application/json"})
+            return httpx.Response(200, json={"configured": True, "athlete_id": "i45678"}, headers={"Content-Type": "application/json"})
+        if request.url.path == "/v1/user/sync":
+            return httpx.Response(200, json={"status": "ok", "user_id": "athlete-sub-1"}, headers={"Content-Type": "application/json"})
+        return httpx.Response(404, json={"error": "not found"}, headers={"Content-Type": "application/json"})
+
+    app, _, _ = setup(mt_settings, key, backend)
+    with client_for(app, mt_settings) as client:
+        token = bearer(key, settings, sub="athlete-sub-1", email_verified=True)
+
+        # Checkout
+        checkout_res = client.post("/dashboard/api/billing/checkout", headers=token)
+        assert checkout_res.status_code == 200
+        assert checkout_res.json()["checkout_url"] == "https://stripe.com/checkout"
+        assert calls[0].headers.get("x-user-id") == "athlete-sub-1"
+
+        # Portal
+        portal_res = client.post("/dashboard/api/billing/portal", headers=token)
+        assert portal_res.status_code == 200
+        assert portal_res.json()["portal_url"] == "https://stripe.com/portal"
+        assert calls[1].headers.get("x-user-id") == "athlete-sub-1"
+
+        # Vipps activate
+        vipps_res = client.post("/dashboard/api/billing/vipps/activate", headers=token, json={"agreement_id": "agr_123"})
+        assert vipps_res.status_code == 200
+        assert vipps_res.json()["status"] == "activated"
+        assert calls[2].headers.get("x-user-id") == "athlete-sub-1"
+        assert json.loads(calls[2].content) == {"agreement_id": "agr_123"}
+
+        # Intervals credentials save
+        save_cred_res = client.post(
+            "/dashboard/api/user/intervals-credentials",
+            headers=token,
+            json={"api_key": "mock-intervals-key", "athlete_id": "i45678"},
+        )
+        assert save_cred_res.status_code == 200
+        assert calls[3].headers.get("x-user-id") == "athlete-sub-1"
+        assert json.loads(calls[3].content) == {"api_key": "mock-intervals-key", "athlete_id": "i45678"}
+
+        # Intervals credentials get
+        get_cred_res = client.get("/dashboard/api/user/intervals-credentials", headers=token)
+        assert get_cred_res.status_code == 200
+        assert calls[4].headers.get("x-user-id") == "athlete-sub-1"
+
+        # User sync
+        sync_res = client.post("/dashboard/api/user/sync", headers=token, json={"backfill": False})
+        assert sync_res.status_code == 200
+        assert calls[5].headers.get("x-user-id") == "athlete-sub-1"

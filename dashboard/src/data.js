@@ -151,3 +151,187 @@ export const escapeHTML = (value) =>
     /[&<>"']/g,
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
   );
+
+export function pmcSeries(rows, ending, lookbackDays = 84) {
+  const sorted = [...rows].sort((a, b) => dayOf(a).localeCompare(dayOf(b)));
+  const daily = new Map();
+  for (const r of sorted) {
+    const day = dayOf(r);
+    const load = loadOf(r);
+    if (!daily.has(day)) {
+      daily.set(day, { load: 0, ctl: null, atl: null });
+    }
+    const d = daily.get(day);
+    if (isNumber(load)) d.load += load;
+    if (isNumber(r.analysis?.ctl)) d.ctl = r.analysis.ctl;
+    if (isNumber(r.analysis?.atl)) d.atl = r.analysis.atl;
+  }
+
+  const start = addDays(ending, -lookbackDays + 1);
+  const decayCtl = Math.exp(-1 / 42);
+  const decayAtl = Math.exp(-1 / 7);
+
+  const allDays = Array.from(daily.keys()).sort();
+  const earliestDay = allDays[0];
+
+  let ctl = 0;
+  let atl = 0;
+  let latestSeedDay = null;
+
+  for (const [day, data] of daily.entries()) {
+    if (day <= start && isNumber(data.ctl) && isNumber(data.atl)) {
+      if (!latestSeedDay || day >= latestSeedDay) {
+        ctl = data.ctl;
+        atl = data.atl;
+        latestSeedDay = day;
+      }
+    }
+  }
+
+  if (!latestSeedDay) {
+    for (const [day, data] of daily.entries()) {
+      if (isNumber(data.ctl) && isNumber(data.atl)) {
+        ctl = data.ctl;
+        atl = data.atl;
+        latestSeedDay = day;
+        break;
+      }
+    }
+  }
+
+  const simStart = latestSeedDay || (earliestDay && earliestDay < start ? earliestDay : start);
+  let curDay = simStart;
+  while (curDay < start) {
+    const data = daily.get(curDay);
+    const load = data ? data.load : 0;
+    if (isNumber(data?.ctl)) {
+      ctl = data.ctl;
+    } else {
+      ctl = ctl * decayCtl + load * (1 - decayCtl);
+    }
+    if (isNumber(data?.atl)) {
+      atl = data.atl;
+    } else {
+      atl = atl * decayAtl + load * (1 - decayAtl);
+    }
+    curDay = addDays(curDay, 1);
+  }
+
+  const series = [];
+  for (let i = 0; i < lookbackDays; i++) {
+    const date = addDays(start, i);
+    const data = daily.get(date);
+    const load = data ? data.load : 0;
+
+    if (data?.ctl !== null && data?.ctl !== undefined && isNumber(data.ctl)) {
+      ctl = data.ctl;
+    } else {
+      ctl = ctl * decayCtl + load * (1 - decayCtl);
+    }
+
+    if (data?.atl !== null && data?.atl !== undefined && isNumber(data.atl)) {
+      atl = data.atl;
+    } else {
+      atl = atl * decayAtl + load * (1 - decayAtl);
+    }
+
+    const tsb = ctl - atl;
+    series.push({
+      date,
+      load: Math.round(load * 10) / 10,
+      ctl: Math.round(ctl * 10) / 10,
+      atl: Math.round(atl * 10) / 10,
+      tsb: Math.round(tsb * 10) / 10,
+    });
+  }
+
+  return series;
+}
+
+export function formStatus(tsb) {
+  if (!isNumber(tsb)) return { label: 'Unknown', tone: 'neutral' };
+  if (tsb > 25) return { label: 'Transition / Rest', tone: 'warning' };
+  if (tsb > 5) return { label: 'Fresh / Peaked', tone: 'fresh' };
+  if (tsb >= -10) return { label: 'Maintenance', tone: 'neutral' };
+  if (tsb >= -30) return { label: 'Optimal Training', tone: 'optimal' };
+  return { label: 'High Fatigue', tone: 'fatigue' };
+}
+
+export const STANDARD_MMP_BUCKETS = [1, 5, 15, 30, 60, 120, 180, 300, 600, 1200, 3600];
+
+export function bestRollingPower(samples, buckets = STANDARD_MMP_BUCKETS) {
+  if (!Array.isArray(samples) || !samples.length) {
+    return buckets.map((duration) => ({ duration, power: null }));
+  }
+  const values = samples.map((s) => {
+    if (s == null) return 0;
+    const v = typeof s === 'object' ? s.power : s;
+    return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0;
+  });
+
+  return buckets.map((duration) => {
+    if (values.length < duration) {
+      return { duration, power: null };
+    }
+    let sum = 0;
+    for (let i = 0; i < duration; i++) sum += values[i];
+    let maxAvg = sum / duration;
+
+    for (let i = duration; i < values.length; i++) {
+      sum += values[i] - values[i - duration];
+      const avg = sum / duration;
+      if (avg > maxAvg) maxAvg = avg;
+    }
+
+    return { duration, power: Math.round(maxAvg) };
+  });
+}
+
+export function criticalPowerCurve(cp, wPrime, buckets = STANDARD_MMP_BUCKETS) {
+  if (!isNumber(cp) || cp <= 0 || !isNumber(wPrime) || wPrime <= 0) {
+    return [];
+  }
+  return buckets.map((duration) => ({
+    duration,
+    power: Math.round(cp + wPrime / duration),
+  }));
+}
+
+export function extractMmpEnvelope(workouts, buckets = STANDARD_MMP_BUCKETS) {
+  const result = new Map(buckets.map((d) => [d, null]));
+  if (!Array.isArray(workouts))
+    return Array.from(result, ([duration, power]) => ({ duration, power }));
+
+  for (const w of workouts) {
+    if (Array.isArray(w?.samples) && w.samples.length) {
+      const workoutMmp = bestRollingPower(w.samples, buckets);
+      for (const item of workoutMmp) {
+        if (item.power !== null) {
+          const cur = result.get(item.duration);
+          if (cur === null || item.power > cur) result.set(item.duration, item.power);
+        }
+      }
+    } else if (w?.metrics) {
+      const avgP = isNumber(w.metrics.average_power_w) ? w.metrics.average_power_w : null;
+      const maxP = isNumber(w.metrics.max_power_w) ? w.metrics.max_power_w : null;
+      const duration = isNumber(w.metrics.moving_time_s) ? w.metrics.moving_time_s : 0;
+
+      if (maxP !== null) {
+        const cur1 = result.get(1);
+        if (cur1 === null || maxP > cur1) result.set(1, maxP);
+        const cur5 = result.get(5);
+        if (cur5 === null || maxP > cur5) result.set(5, Math.round(maxP * 0.96));
+      }
+      if (avgP !== null && duration > 0) {
+        for (const b of buckets) {
+          if (b <= duration) {
+            const cur = result.get(b);
+            if (cur === null || avgP > cur) result.set(b, Math.round(avgP));
+          }
+        }
+      }
+    }
+  }
+
+  return Array.from(result, ([duration, power]) => ({ duration, power }));
+}

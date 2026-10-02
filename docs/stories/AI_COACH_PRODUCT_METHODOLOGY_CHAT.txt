@@ -1,0 +1,22 @@
+Context and principles: I am building a database to keep my workouts and running ai to analyze my session and give me advice. This have been done before by others. But whats neat is that it sync automatically workouts from interval.icu. The perfect thing would be if it synced directly from garmin but that api is only for other businesses not individual coders. So for my platform to become better I want to summarize the training more so the AI dont need to hold all session in context and increase the amount of tokens. Trainingpeaks use TSS. Are there other metrics that is useful? Total amount of kilojoules maybe? There are others working with ai and training like Vekta.. What are their secret sauce. How could I package my stuff to start a business? I dont even know if it would scale as it is right now.
+
+Summary of key takeaways:
+1. Summarization Metrics (Saving Tokens):
+   TSS & IF, Total Kilojoules (kJ), Normalized Power (NP), Time-in-Zone (TiZ), Internal vs. External Load.
+2. The Secret Sauce of Platforms Like Vekta:
+   - Dynamic Critical Power (CP) & W'
+   - Separating Volume vs. Intensity
+   - Durability (Fatigue Resistance after 1,000 to 2,500 kJ)
+3. Package and Scale:
+   - Fix data pipeline (calculate deterministically, pass small JSON to LLM).
+   - Sync via intervals.icu MVP, later Strava/Wahoo or B2B Garmin Health API.
+   - B2C Virtual Coach or B2B Coach Copilot.
+4. Scientific Citations:
+   - Monod & Scherrer (1965)
+   - Skiba et al. (2012, 2015)
+   - Maunder et al. (2021)
+   - Mateo-March et al. (2024)
+5. Developer Implementation:
+   - Traceable physiological modeling deployed in commit 3462024 (PR #2).
+   - Strict bounds: 120s < duration < 900s, work-time OLS, Skiba differential exact balance.
+   - Rules of interpretation: scientific humility, model consistency warnings, bounded context projection.

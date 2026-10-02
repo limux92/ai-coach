@@ -10,6 +10,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import release
+import release_check
+import release_deploy
 from release_git import CHECK_NAMES, GitRelease, ReleaseError, ci_complete, routine_scope, validate_paths
 import release_cloud as cloud
 
@@ -54,7 +56,7 @@ def test_release_requires_explicit_destination_and_message():
 
 
 def test_runner_failure_and_timeout_are_not_success(tmp_path):
-    run = release.Runner(tmp_path, {})
+    run = release_check.Runner(tmp_path, {})
     with pytest.raises(ReleaseError, match="exit 4"):
         run([sys.executable, "-c", "raise SystemExit(4)"], label="failed check")
     with pytest.raises(ReleaseError, match="timed out"):
@@ -76,7 +78,7 @@ def test_git_requires_complete_staging_and_detects_concurrent_edits(tmp_path):
     logs.mkdir(parents=True)
     (tmp_path / ".gitignore").write_text(".local/\n")
     git("add", ".gitignore")
-    runner = release.Runner(logs, {})
+    runner = release_check.Runner(logs, {})
     # The runner normally uses the actual workspace; bind all test commands here.
     def run(args, **kwargs):
         return runner(args, cwd=tmp_path, **kwargs)
@@ -107,17 +109,10 @@ def test_wrong_remote_rejected_before_publication(tmp_path):
         GitRelease(Run(), tmp_path, {}).inspect(strict=True)
 
 
-def test_check_failure_stops_before_github_or_cloud(monkeypatch, tmp_path):
-    runner = release.Runner(tmp_path, {})
-    git = SimpleNamespace(inspect=lambda **_: None, prepare=lambda: None, fingerprint=lambda: "tree")
-    def fail_checks(*args):
-        raise ReleaseError("local test failed")
-    monkeypatch.setattr(release, "checks", fail_checks)
-    monkeypatch.setattr(release.Runner, "__call__", lambda *a, **k: "")
-    with pytest.raises(ReleaseError, match="local test failed"):
-        release.release(runner, git, SimpleNamespace(message="title"), "test")
-    assert not runner.receipt.get("commit")
-    assert not runner.receipt.get("revision")
+def test_combined_release_entrypoint_is_retired():
+    with pytest.raises(SystemExit) as error:
+        release.main(["--release"])
+    assert error.value.code == 2
 
 
 def test_ci_wait_handles_registration_delay_and_pending_jobs(monkeypatch, tmp_path):
@@ -142,34 +137,49 @@ def test_pr_head_change_blocks_release(tmp_path):
 
 
 def test_failed_github_ci_never_builds_or_deploys_cloud(monkeypatch, tmp_path):
-    runner = release.Runner(tmp_path, {})
-    git = SimpleNamespace(inspect=lambda **_: None, prepare=lambda: None, fingerprint=lambda: "tree",
-                          unchanged=lambda _: None, publish=lambda *a: ("2", "sha"))
-    def fail_ci(*args):
-        raise ReleaseError("GitHub CI failed")
-    git.wait_for_ci = fail_ci
-    monkeypatch.setattr(release, "checks", lambda *a: {})
-    monkeypatch.setattr(release.Runner, "__call__", lambda *a, **k: "")
-    monkeypatch.setattr(cloud, "CloudRelease", lambda *a: SimpleNamespace(preflight=lambda: None))
+    runner = release_deploy.Runner(tmp_path, {})
+    tree = "a" * 40
+
+    class Git:
+        def __init__(self, run, root, receipt):
+            self.receipt = receipt
+        def inspect(self, **kwargs):
+            return None
+        def prepare(self, **kwargs):
+            self.receipt["publication_files"] = ["app.py"]
+        def fingerprint(self):
+            return tree
+        def publish(self, *args):
+            return "2", "commit"
+        def git(self, *args):
+            return tree
+        def wait_for_ci(self, *args):
+            raise ReleaseError("GitHub CI failed")
+
+    deployed = []
+    class Cloud:
+        def __init__(self, *args):
+            pass
+        def preflight(self, **kwargs):
+            return None
+        def deploy(self, *args):
+            deployed.append(args)
+
+    monkeypatch.setattr(release_deploy, "GitRelease", Git)
+    monkeypatch.setattr(cloud, "CloudRelease", Cloud)
+    args = SimpleNamespace(message="title", bootstrap_backend_health=None,
+                           recover_failed_backend_candidate=None,
+                           physiology_scheduler_migration=False)
     with pytest.raises(ReleaseError, match="GitHub CI failed"):
-        release.release(runner, git, SimpleNamespace(message="title"), "test")
-    assert not runner.receipt.get("revision")
-
-
-def test_candidate_bundle_rejects_changed_build_assets(tmp_path, monkeypatch):
-    import hashlib
-    import zipfile
-    assets = tmp_path / "adapters/mcp/static/dashboard"
-    assets.mkdir(parents=True)
-    (assets / "index.html").write_text("new untested content")
-    directory = tmp_path / "receipt"
-    directory.mkdir()
-    with zipfile.ZipFile(directory / "source.zip", "w") as archive:
-        archive.writestr("adapters/mcp/Dockerfile", "FROM scratch\n")
-    monkeypatch.setattr(release, "ROOT", tmp_path)
-    git = SimpleNamespace(git=lambda *a: None)
-    with pytest.raises(ReleaseError, match="Build assets changed"):
-        release.bundle(SimpleNamespace(directory=directory), git, "sha", {"index.html": hashlib.sha256(b"tested").hexdigest()})
+        release_deploy.deploy(
+            runner,
+            {"tree": tree, "publication_files": ["app.py"], "assets": {}, "integrity_digest": "0" * 64},
+            tmp_path,
+            {"ai-coach-sync": tmp_path, "ai-coach-chat": tmp_path},
+            args,
+            "test",
+        )
+    assert not deployed
 
 
 def test_missing_firebase_receipt_has_actionable_error(monkeypatch):

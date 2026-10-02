@@ -5,10 +5,13 @@ import { calendar } from './calendar.js';
 
 export function shell(state, config) {
   const syncDate = state.status?.last_success_at;
+  const isAwaitingKey = state.status?.source_connection === 'awaiting_api_key';
   const syncLabel = state.status
-    ? state.status.stale
-      ? 'Sync needs attention'
-      : 'Synced with Intervals.icu'
+    ? isAwaitingKey
+      ? 'Connect Intervals.icu'
+      : state.status.stale
+        ? 'Sync needs attention'
+        : 'Synced with Intervals.icu'
     : 'Checking connection';
   const syncTime = syncDate
     ? new Intl.DateTimeFormat('en-GB', {
@@ -66,8 +69,10 @@ export function shell(state, config) {
         </div>
         <div class="topbar-right">
           <span
-            class="sync-status ${state.status?.stale ? 'warn' : ''}"
-            title="${esc(syncTime ? `Last source sync: ${syncTime} · ${config.timezone}` : 'Checking source sync status')}"
+            class="sync-status ${state.status?.stale || isAwaitingKey ? 'warn' : ''}"
+            data-action="open-intervals"
+            style="cursor: pointer;"
+            title="${esc(syncTime ? `Last source sync: ${syncTime} · ${config.timezone}` : 'Configure Intervals.icu sync')}"
             ><span class="status-dot"></span>${syncLabel}</span
           ><button
             class="icon-button"
@@ -162,7 +167,52 @@ export function shell(state, config) {
         </footer>
       </main>
     </div>
+    ${state.showIntervalsModal ? intervalsModalHTML() : ''}
   </div>`;
+}
+
+function intervalsModalHTML() {
+  return /* HTML */ `
+    <div class="drawer-backdrop" data-action="close-intervals"></div>
+    <div
+      class="drawer"
+      style="max-width:380px;padding:20px;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);border-radius:8px;z-index:1000;"
+    >
+      <div class="detail-header">
+        <h3>Intervals.icu</h3>
+        <button class="icon-button" data-action="close-intervals" aria-label="Close">✕</button>
+      </div>
+      <p style="color:var(--muted);font-size:0.85rem;margin:8px 0 12px;">
+        API-nøkkel og utøver-ID fra
+        <a href="https://intervals.icu/settings" target="_blank" rel="noopener"
+          >intervals.icu/settings</a
+        >.
+      </p>
+      <div style="display:grid;gap:8px;">
+        <label style="font-size:0.85rem;"
+          >API-nøkkel<input
+            type="password"
+            id="intervals-api-key"
+            class="sport-filter"
+            style="width:100%;margin-top:4px;"
+            required
+        /></label>
+        <label style="font-size:0.85rem;"
+          >Utøver-ID<input
+            type="text"
+            id="intervals-athlete-id"
+            placeholder="i12345"
+            class="sport-filter"
+            style="width:100%;margin-top:4px;"
+            required
+        /></label>
+        <p id="intervals-error" style="color:var(--danger);font-size:0.85rem;display:none;"></p>
+        <button class="button primary" data-action="save-intervals" style="margin-top:4px;">
+          Lagre og synkroniser
+        </button>
+      </div>
+    </div>
+  `;
 }
 
 function loadingView() {
