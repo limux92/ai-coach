@@ -16,6 +16,7 @@ import { createWorkoutController } from './workout-controller.js';
 import { bindEvents } from './events.js';
 import { shell as renderShell } from './views/shell.js';
 import { loginScreen as renderLogin, pendingPaymentScreen } from './views/login.js';
+import { connectChat } from './connect.js';
 
 const root = document.querySelector('#app');
 const drawerRoot = document.querySelector('#drawer-root');
@@ -182,7 +183,6 @@ async function boot() {
 
     await setPersistence(auth, browserSessionPersistence);
     if (location.pathname === '/dashboard/connect') {
-      const { connectChat } = await import('./connect.js');
       return await connectChat(root, auth);
     }
     onAuthStateChanged(auth, async (user) => {
