@@ -89,13 +89,11 @@ export function shell(state, config) {
         <div class="page-heading">
           <div>
             <p class="eyebrow">
-              ${state.view === 'overview' ? 'THE BIG PICTURE' : 'MAKE EVERY WEEK COUNT'}
+              ${state.view === 'overview' ? 'THE BIG PICTURE' : 'TRAINING CALENDAR'}
             </p>
-            <h1>
-              ${state.view === 'overview' ? 'Your training, in focus.' : 'Your training calendar.'}
-            </h1>
+            <h1>${state.view === 'overview' ? 'Training overview' : 'Training calendar'}</h1>
             <p class="page-subtitle">
-              ${state.view === 'overview' ? 'A little perspective on all the work you’ve put in.' : 'The sessions behind you. The possibilities ahead.'}
+              ${state.view === 'overview' ? 'Perspective on your workouts and fitness.' : 'Review your past and upcoming sessions.'}
             </p>
           </div>
           <div class="period-nav">
@@ -174,42 +172,29 @@ export function shell(state, config) {
 function intervalsModalHTML() {
   return /* HTML */ `
     <div class="drawer-backdrop" data-action="close-intervals"></div>
-    <div
-      class="drawer"
-      style="max-width:380px;padding:20px;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);border-radius:8px;z-index:1000;"
-    >
+    <div class="drawer intervals-modal">
       <div class="detail-header">
         <h3>Intervals.icu</h3>
         <button class="icon-button" data-action="close-intervals" aria-label="Close">✕</button>
       </div>
-      <p style="color:var(--muted);font-size:0.85rem;margin:8px 0 12px;">
-        API-nøkkel og utøver-ID fra
-        <a href="https://intervals.icu/settings" target="_blank" rel="noopener"
-          >intervals.icu/settings</a
-        >.
+      <p class="modal-hint">
+        Nøkkel og ID fra
+        <a href="https://intervals.icu/settings" target="_blank" rel="noopener">innstillinger</a>.
       </p>
-      <div style="display:grid;gap:8px;">
-        <label style="font-size:0.85rem;"
-          >API-nøkkel<input
-            type="password"
-            id="intervals-api-key"
-            class="sport-filter"
-            style="width:100%;margin-top:4px;"
-            required
+      <div class="modal-fields">
+        <label
+          >API-nøkkel<input type="password" id="intervals-api-key" class="sport-filter" required
         /></label>
-        <label style="font-size:0.85rem;"
+        <label
           >Utøver-ID<input
             type="text"
             id="intervals-athlete-id"
             placeholder="i12345"
             class="sport-filter"
-            style="width:100%;margin-top:4px;"
             required
         /></label>
-        <p id="intervals-error" style="color:var(--danger);font-size:0.85rem;display:none;"></p>
-        <button class="button primary" data-action="save-intervals" style="margin-top:4px;">
-          Lagre og synkroniser
-        </button>
+        <p id="intervals-error" class="form-error" style="display:none;"></p>
+        <button class="button primary" data-action="save-intervals">Lagre og synkroniser</button>
       </div>
     </div>
   `;

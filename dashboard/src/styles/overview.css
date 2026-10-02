@@ -587,3 +587,29 @@
   opacity: 0.4;
   height: 8px;
 }
+.intervals-modal {
+  max-width: 380px;
+  padding: 20px;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 8px;
+  z-index: 1000;
+}
+.modal-hint {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 8px 0 12px;
+}
+.modal-fields {
+  display: grid;
+  gap: 8px;
+}
+.modal-fields label {
+  font-size: 0.85rem;
+}
+.modal-fields input {
+  width: 100%;
+  margin-top: 4px;
+}

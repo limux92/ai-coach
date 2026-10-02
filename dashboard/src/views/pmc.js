@@ -62,16 +62,13 @@ export function pmcPanel(state) {
         <p>Fitness (CTL), Fatigue (ATL) & Form (TSB) · 12 Weeks</p>
       </div>
       <div class="pmc-badges">
-        <span class="pmc-pill ctl" title="Chronic Training Load (42-day rolling fitness)">
+        <span class="pmc-pill ctl" title="Fitness (42d)">
           CTL <strong>${number(current.ctl)}</strong>
         </span>
-        <span class="pmc-pill atl" title="Acute Training Load (7-day rolling fatigue)">
+        <span class="pmc-pill atl" title="Fatigue (7d)">
           ATL <strong>${number(current.atl)}</strong>
         </span>
-        <span
-          class="pmc-pill tsb ${status.tone}"
-          title="Training Stress Balance (Form = Fitness - Fatigue)"
-        >
+        <span class="pmc-pill tsb ${status.tone}" title="Form (CTL - ATL)">
           TSB <strong>${current.tsb > 0 ? '+' : ''}${number(current.tsb)}</strong>
         </span>
         <span class="form-tag ${status.tone}">${status.label}</span>
@@ -82,7 +79,7 @@ export function pmcPanel(state) {
         viewBox="0 0 ${width} ${height}"
         class="pmc-svg"
         role="img"
-        aria-label="Performance Management Chart showing CTL ${number(current.ctl)}, ATL ${number(current.atl)}, and TSB ${number(current.tsb)}"
+        aria-label="PMC: CTL ${number(current.ctl)}, ATL ${number(current.atl)}, TSB ${number(current.tsb)}"
       >
         <!-- Optimal training zone (-10 to -30 TSB) -->
         <rect
@@ -148,8 +145,8 @@ export function pmcPanel(state) {
       <span><i class="legend-line ctl"></i>Fitness (CTL)</span>
       <span><i class="legend-line atl"></i>Fatigue (ATL)</span>
       <span><i class="legend-line tsb"></i>Form (TSB)</span>
-      <span><i class="legend-box load"></i>Daily Load</span>
-      <span class="legend-optimal"><i class="legend-zone"></i>Optimal Zone (-10 to -30)</span>
+      <span><i class="legend-box load"></i>Load</span>
+      <span class="legend-optimal"><i class="legend-zone"></i>Optimal (-10..-30)</span>
     </div>
   </section>`;
 }

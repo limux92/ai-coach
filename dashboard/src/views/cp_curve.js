@@ -1,25 +1,15 @@
-import {
-  isNumber,
-  number,
-  escapeHTML as esc,
-  extractMmpEnvelope,
-  criticalPowerCurve,
-  STANDARD_MMP_BUCKETS,
-} from '../data.js';
+import { isNumber, number, extractMmpEnvelope } from '../data.js';
 import { selectedRows } from '../selectors.js';
 
-const DENSE_DURATIONS = [
-  15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 420, 600, 900, 1200, 1800, 2400, 3600,
-];
-
+const DENSE_DURATIONS = [15, 30, 60, 120, 300, 600, 1200, 2400, 3600];
 const TICK_DURATIONS = [
-  { t: 1, label: '1s' },
-  { t: 5, label: '5s' },
-  { t: 15, label: '15s' },
-  { t: 60, label: '1m' },
-  { t: 300, label: '5m' },
-  { t: 1200, label: '20m' },
-  { t: 3600, label: '1h' },
+  [1, '1s'],
+  [5, '5s'],
+  [15, '15s'],
+  [60, '1m'],
+  [300, '5m'],
+  [1200, '20m'],
+  [3600, '1h'],
 ];
 
 export function cpCurvePanel(state) {
@@ -178,9 +168,9 @@ export function cpCurvePanel(state) {
           )
           .join('')}
         ${TICK_DURATIONS.map(
-          (tick) =>
-            `<line x1="${x(tick.t)}" x2="${x(tick.t)}" y1="${padTop}" y2="${padTop + plotH}" class="cp-grid-line duration-line" />` +
-            `<text x="${x(tick.t)}" y="${height - 8}" class="cp-axis-label" text-anchor="middle">${tick.label}</text>`,
+          ([t, label]) =>
+            `<line x1="${x(t)}" x2="${x(t)}" y1="${padTop}" y2="${padTop + plotH}" class="cp-grid-line duration-line" />` +
+            `<text x="${x(t)}" y="${height - 8}" class="cp-axis-label" text-anchor="middle">${label}</text>`,
         ).join('')}
         <path d="${wPrimePolygon}" class="cp-w-prime-area" fill="url(#wPrimeGradient)" />
         <line
@@ -211,15 +201,10 @@ export function cpCurvePanel(state) {
     </div>
     <div class="cp-legend">
       <span class="legend-item"><i class="legend-swatch mmp"></i> Best Power (MMP)</span>
+      <span class="legend-item"><i class="legend-swatch hyperbola"></i> Model CP + W'/t</span>
+      <span class="legend-item"><i class="legend-swatch asymptote"></i> CP (${cp} W)</span>
       <span class="legend-item"
-        ><i class="legend-swatch hyperbola"></i> Model P(t) = CP + W'/t</span
-      >
-      <span class="legend-item"
-        ><i class="legend-swatch asymptote"></i> Critical Power (${cp} W)</span
-      >
-      <span class="legend-item"
-        ><i class="legend-swatch w-prime"></i> W' Work Capacity (${(wPrime / 1000).toFixed(1)}
-        kJ)</span
+        ><i class="legend-swatch w-prime"></i> W' (${(wPrime / 1000).toFixed(1)} kJ)</span
       >
     </div>
   </section>`;

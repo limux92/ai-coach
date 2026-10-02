@@ -2,7 +2,7 @@ import { icon } from '../ui.js';
 import { escapeHTML as esc } from '../data.js';
 
 function termsModalHTML() {
-  return '<div id="terms-box" class="terms-box hidden"><h4>Salgsbetingelser</h4><p>199 kr/mnd inkl. mva. Løpende avtale uten bindingstid.</p><p>Oppsigelse når som helst. Angrerettl. § 22 c.</p></div>';
+  return '<div id="terms-box" class="terms-box hidden"><h4>Vilkår</h4><p>199 kr/mnd. Avtalegiro/Vipps uten bindingstid.</p></div>';
 }
 
 export function loginScreen(message = '', mode = 'signin') {
