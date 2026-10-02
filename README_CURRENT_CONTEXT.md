@@ -1,9 +1,9 @@
 # AI Coach — Current Context & Handoff
 
 **Updated: 2 October 2026**
-**Active Branch:** `release/lightweight-dark-dashboard` (HEAD `de58437`)
-**Production Release:** `de58437e87b3f87fcfa1e64e83be3f7c45556ca9` (`release/lightweight-dark-dashboard`), serving revisions at 100%.
-**Active Revisions:** `ai-coach-sync-r-de58437e-261002-194132-b576`, `ai-coach-chat-r-de58437e-261002-194132-b576`
+**Active Branch:** `release/lightweight-dark-dashboard` (HEAD `f26e665`)
+**Production Release:** `f26e6658737aea62ee9533a310982f504b32d3eb` (`release/lightweight-dark-dashboard`), serving revisions at 100%.
+**Active Revisions:** `ai-coach-sync-r-f26e6658-261002-202554-2bc8`, `ai-coach-chat-r-f26e6658-261002-202554-2bc8`
 
 ---
 

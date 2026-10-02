@@ -20,11 +20,11 @@ Outcomes completed & verified:
    - Step 6: Owner Payment Wall Bypass & Partition Fix (`magne@fam-lima.net` / `N0lThhWrg4YfdoYwHjJbvl5swmk2` auto-healed to active/owner; store partition bypass connects dashboard to root workouts and physiology models).
    - Step 7: Smart Initial Month Initialization & Recent Sessions Fallback: When dashboard boots to a new month with 0 workouts, it auto-focuses the month of the athlete's latest workout (September 2026), displays recent sessions fallback instead of empty state, and updates Intervals.icu modal to show connected active status.
 3. Cloud Release & Verification:
-   - Commit: `de58437e87b3f87fcfa1e64e83be3f7c45556ca9` on `release/lightweight-dark-dashboard` (PR #4, 4/4 CI checks passed).
-   - Deployment receipt: `.local/deployments/261002-194132-b576/summary.json`.
-   - Deployed revisions at 100% traffic: `ai-coach-sync-r-de58437e-261002-194132-b576` and `ai-coach-chat-r-de58437e-261002-194132-b576`.
+   - Commit: `f26e6658737aea62ee9533a310982f504b32d3eb` on `release/lightweight-dark-dashboard` (PR #4, 4/4 CI checks passed).
+   - Deployment receipt: `.local/deployments/261002-202554-2bc8/summary.json`.
+   - Deployed revisions at 100% traffic: `ai-coach-sync-r-f26e6658-261002-202554-2bc8` and `ai-coach-chat-r-f26e6658-261002-202554-2bc8`.
    - Public dashboard verified live at `https://aiworkoutbuilder.app/dashboard/` (HTTP 200).
-4. Quality gates: 644 backend tests, 205 adapter tests, 22 dashboard tests pass; JS gzip 49.9 KB / CSS 5.7 KB within limits.
+4. Quality gates: 644 backend tests, 205 adapter tests, 22 dashboard tests pass; JS gzip 49.08 KB / CSS 5.76 KB within limits.
 
 ## 1. Decision and responsibilities
 
