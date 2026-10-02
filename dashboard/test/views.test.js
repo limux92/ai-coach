@@ -54,6 +54,13 @@ test('extracted overview renders scoped totals, unknown data, and escaped names'
   );
 });
 
+test('recent sessions displays fallback workouts when selected month has 0 workouts', () => {
+  const emptyMonth = fixture({ month: '2026-10-01' });
+  const html = shell(emptyMonth, config);
+  assert.match(html, /data-workout="current"/);
+  assert.match(html, /Ingen økter denne måneden/);
+});
+
 test('calendar renders adjacent cards but counts the selected period, hiding cancelled plans', () => {
   const month = calendar(fixture());
   assert.match(month, /Month total[\s\S]*?<strong>1<\/strong>/);

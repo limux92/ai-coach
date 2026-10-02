@@ -88,6 +88,7 @@ export function bindEvents(state, drawerRoot, actions) {
       return;
     }
     if (target.dataset.day) {
+      state.userNavigatedMonth = true;
       state.week = monday(target.dataset.day);
       state.month = monthStart(target.dataset.day);
       state.view = 'calendar';
@@ -95,12 +96,20 @@ export function bindEvents(state, drawerRoot, actions) {
       return void loadData();
     }
     if (action === 'refresh') return void loadData();
+    if (action === 'jump-month') {
+      state.userNavigatedMonth = true;
+      state.month = monthStart(target.dataset.month || state.today);
+      state.week = monday(state.month);
+      return void loadData();
+    }
     if (action === 'today') {
+      state.userNavigatedMonth = true;
       state.month = monthStart(state.today);
       state.week = monday(state.today);
       return void loadData();
     }
     if (action === 'previous' || action === 'next') {
+      state.userNavigatedMonth = true;
       const delta = action === 'previous' ? -1 : 1;
       if (state.view === 'calendar' && state.calendarMode === 'week') {
         state.week = addDays(state.week, delta * 7);
@@ -115,6 +124,7 @@ export function bindEvents(state, drawerRoot, actions) {
   document.addEventListener('change', (event) => {
     if (event.target.id === 'month-picker') {
       if (/^\d{4}-\d{2}$/.test(event.target.value) && event.target.validity.valid) {
+        state.userNavigatedMonth = true;
         state.month = `${event.target.value}-01`;
         state.week = monday(state.month);
         void loadData();

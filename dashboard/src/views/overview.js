@@ -1,6 +1,6 @@
 import { totals, duration, km, number, escapeHTML as esc } from '../data.js';
 import { names, icon } from '../ui.js';
-import { monthRows, prettyMonth } from '../selectors.js';
+import { monthRows, prettyMonth, selectedRows } from '../selectors.js';
 import { trendChart, zones } from './charts.js';
 import { pmcPanel } from './pmc.js';
 import { cpCurvePanel } from './cp_curve.js';
@@ -102,7 +102,7 @@ export function overview(state) {
           </div>
           <button class="text-button" data-view="calendar">View calendar ${icon('arrow')}</button>
         </div>
-        ${recentTable(rows)}
+        ${recentTable(rows, selectedRows(state.workouts, state))}
       </section>
       <section class="panel month-panel">
         <div class="panel-heading">

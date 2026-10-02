@@ -9,7 +9,7 @@ import {
   onAuthStateChanged,
 } from 'firebase/auth';
 import './style.css';
-import { addDays, monthStart, monthEnd, monday, calendarDays, localToday } from './data.js';
+import { addDays, monthStart, monthEnd, monday, calendarDays, localToday, dayOf } from './data.js';
 import { brand } from './ui.js';
 import { createApi } from './api.js';
 import { createWorkoutController } from './workout-controller.js';
@@ -86,6 +86,20 @@ async function loadData() {
     state.plans = [...new Map(plans.map((w) => [w.id, w])).values()];
     state.status = status;
     state.context = context;
+    if (!state.userNavigatedMonth && state.workouts.length) {
+      const thisMonth = monthStart(state.today);
+      const hasThisMonth = state.workouts.some(
+        (w) => dayOf(w).slice(0, 7) === thisMonth.slice(0, 7),
+      );
+      if (!hasThisMonth) {
+        const dates = state.workouts.map(dayOf).filter(Boolean).sort();
+        const latest = dates.at(-1);
+        if (latest) {
+          state.month = monthStart(latest);
+          state.week = monday(latest);
+        }
+      }
+    }
   } catch (error) {
     if (request !== state.request || error.name === 'AbortError') return;
     state.error = error.message;

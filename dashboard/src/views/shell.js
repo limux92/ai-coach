@@ -165,11 +165,13 @@ export function shell(state, config) {
         </footer>
       </main>
     </div>
-    ${state.showIntervalsModal ? intervalsModalHTML() : ''}
+    ${state.showIntervalsModal ? intervalsModalHTML(state) : ''}
   </div>`;
 }
 
-function intervalsModalHTML() {
+function intervalsModalHTML(state) {
+  const isOk = state?.status?.source_connection === 'configured';
+  const id = state?.status?.source_athlete_id || state?.status?.athlete_id || 'i714323';
   return /* HTML */ `
     <div class="drawer-backdrop" data-action="close-intervals"></div>
     <div class="drawer intervals-modal">
@@ -177,25 +179,42 @@ function intervalsModalHTML() {
         <h3>Intervals.icu</h3>
         <button class="icon-button" data-action="close-intervals" aria-label="Close">✕</button>
       </div>
-      <p class="modal-hint">
-        Nøkkel og ID fra
-        <a href="https://intervals.icu/settings" target="_blank" rel="noopener">innstillinger</a>.
-      </p>
-      <div class="modal-fields">
-        <label
-          >API-nøkkel<input type="password" id="intervals-api-key" class="sport-filter" required
-        /></label>
-        <label
-          >Utøver-ID<input
-            type="text"
-            id="intervals-athlete-id"
-            placeholder="i12345"
-            class="sport-filter"
-            required
-        /></label>
-        <p id="intervals-error" class="form-error" style="display:none;"></p>
-        <button class="button primary" data-action="save-intervals">Lagre og synkroniser</button>
-      </div>
+      ${
+        isOk
+          ? /* HTML */ `<p class="modal-hint">
+                Tilkoblet <strong>${esc(id)}</strong>. Synkroniseres automatisk.
+              </p>
+              <div class="modal-fields">
+                <button class="button primary" data-action="refresh">Oppdater nå</button>
+              </div>`
+          : /* HTML */ `<p class="modal-hint">
+                Nøkkel og ID fra
+                <a href="https://intervals.icu/settings" target="_blank" rel="noopener"
+                  >innstillinger</a
+                >.
+              </p>
+              <div class="modal-fields">
+                <label
+                  >API-nøkkel<input
+                    type="password"
+                    id="intervals-api-key"
+                    class="sport-filter"
+                    required
+                /></label>
+                <label
+                  >Utøver-ID<input
+                    type="text"
+                    id="intervals-athlete-id"
+                    placeholder="i12345"
+                    class="sport-filter"
+                    required
+                /></label>
+                <p id="intervals-error" class="form-error" style="display:none;"></p>
+                <button class="button primary" data-action="save-intervals">
+                  Lagre og synkroniser
+                </button>
+              </div>`
+      }
     </div>
   `;
 }

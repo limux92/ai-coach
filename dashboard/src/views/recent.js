@@ -10,8 +10,10 @@ import {
 } from '../data.js';
 import { names, icon, datum } from '../ui.js';
 
-export function recentTable(rows) {
-  const items = [...rows]
+export function recentTable(rows, allRows = []) {
+  const displayRows = rows.length ? rows : allRows;
+  const isFallback = !rows.length && allRows.length > 0;
+  const items = [...displayRows]
     .sort((a, b) =>
       String(b.start_date_local || dayOf(b)).localeCompare(String(a.start_date_local || dayOf(a))),
     )
@@ -26,6 +28,7 @@ export function recentTable(rows) {
       </p>
     </div>`;
   return /* HTML */ `<div class="table-scroll">
+    ${isFallback ? /* HTML */ `<p class="chart-coverage" style="margin: 0 0 8px 4px;">Ingen økter denne måneden. Viser de siste gjennomførte øktene:</p>` : ''}
     <table class="workout-table">
       <thead>
         <tr>

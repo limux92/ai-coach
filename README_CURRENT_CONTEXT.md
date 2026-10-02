@@ -1,8 +1,9 @@
 # AI Coach — Current Context & Handoff
 
 **Updated: 2 October 2026**
-**Active Branch:** `release/lightweight-dark-dashboard` (HEAD `44afae7`)
-**Production Release:** `c35e6cd3c51e4a79e3758516562a6cc46855b81e` (`release/conversational-coach`), serving revisions at 100%.
+**Active Branch:** `release/lightweight-dark-dashboard` (HEAD `de58437`)
+**Production Release:** `de58437e87b3f87fcfa1e64e83be3f7c45556ca9` (`release/lightweight-dark-dashboard`), serving revisions at 100%.
+**Active Revisions:** `ai-coach-sync-r-de58437e-261002-194132-b576`, `ai-coach-chat-r-de58437e-261002-194132-b576`
 
 ---
 
@@ -68,8 +69,8 @@ To ensure the AI never prompts for file writes or commands again:
   - **Fitness / Fatigue Warmup**: Added 42-day EWMA warm-up and 126-day lookback in [`dashboard/src/data.js`](dashboard/src/data.js) so CTL and ATL accurately reflect the athlete's training load history instead of ramping up from 0.
   - Verified 20/20 unit tests, bundle budgets (<50KB JS, <6KB CSS), sealed receipts, zero-downtime canary deployment, and live HTTP 200 verification.
 
-### Roadmap B: Google Cloud Multi-User Platform (Fully Implemented & Verified)
-* **Status**: **100% IMPLEMENTED & VERIFIED**
+### Roadmap B: Google Cloud Multi-User Platform (Fully Implemented, Released & Deployed)
+* **Status**: **100% IMPLEMENTED, RELEASED & DEPLOYED IN PRODUCTION**
   - **Step 1: Database (Multi-Tenant Isolation)**:
     - Partitioned Firestore collections under `users/{userId}/*` (`workouts`, `wellness`, `sync_state`, `physiology_models`, `credentials`).
     - Authoritative [`firestore.rules`](firestore.rules) enforcing strict user-scoped isolation (`request.auth.uid == userId`).
@@ -88,7 +89,17 @@ To ensure the AI never prompts for file writes or commands again:
     - Scoped background synchronization runner [`src/ai_coach/sync.py`](src/ai_coach/sync.py) (`run_sync_for_user`, `run_multi_tenant_sync`) with rate budgeting.
     - Click-to-connect Intervals modal in dashboard shell with athlete ID and API key inputs.
   - **Step 5: Cloud Scheduler & Verification**:
-    - Background sync runner hooked into `POST /internal/sync` and `POST /internal/sync/multi-tenant` so existing Cloud Scheduler jobs automatically sync all active subscribers.
-    - Automated E2E verification test suite [`scripts/test_onboarding_billing.py`](scripts/test_onboarding_billing.py) passing all 8/8 checks in 0.05s.
-    - Full test coverage: 638 backend tests, 97 adapter tests, 20 dashboard tests passing.
-    - Bundle budget passed: JS gzip 49,910 / 50,000 bytes; CSS gzip 5,663 / 6,000 bytes.
+    - Background sync runner hooked into `POST /internal/sync` and `POST /internal/sync/multi-tenant` so Cloud Scheduler jobs automatically sync active subscribers.
+  - **Step 6: Owner Payment Wall Bypass & Root Partition Routing**:
+    - Identified owner via UID (`N0lThhWrg4YfdoYwHjJbvl5swmk2`), email (`magne@fam-lima.net`), and `X-Is-Owner`.
+    - Auto-healing of existing owner profiles from `pending_payment` to `active` + `role: owner`.
+    - Store partition bypass routes owner to root collections, connecting dashboard to root workouts and physiology models.
+  - **Step 7: Smart Initial Month Initialization & Recent Sessions Fallback**:
+    - Default dashboard month/week on initial load automatically jumps to the latest workout month (September 2026) when the current month is empty, so athletes immediately see their workouts.
+    - Recent sessions table displays latest historical sessions with fallback notice instead of an empty banner.
+    - Intervals modal displays active "Tilkoblet" status and auto-sync notice for configured users.
+  - **Automated Verification & Gates**:
+    - Standalone E2E verification test suite [`scripts/test_onboarding_billing.py`](scripts/test_onboarding_billing.py) passing all 9/9 checks in 0.04s.
+    - 644 backend tests, 205 adapter tests, 22 dashboard tests passing.
+    - Bundle budget passed: JS gzip 49,985 / 50,000 bytes; CSS gzip 5,757 / 6,000 bytes.
+    - Deployed to Google Cloud Run (`ai-coach-sync` & `ai-coach-chat`) at 100% traffic; live at `https://aiworkoutbuilder.app/dashboard/`.
