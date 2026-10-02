@@ -98,3 +98,59 @@ test('sample preview stays bounded and missing readings break the line', () => {
   assert.match(html, /partial session/);
   assert.match(html, /data-action="more-samples"/);
 });
+
+test('pmcSeries calculates rolling fitness, fatigue, and form accurately', async () => {
+  const { pmcSeries, formStatus } = await import('../src/data.js');
+  const rows = [
+    { local_date: '2026-09-01', analysis: { training_load: 100, ctl: 50, atl: 60 } },
+    { local_date: '2026-09-10', analysis: { training_load: 80 } },
+  ];
+  const series = pmcSeries(rows, '2026-09-23', 84);
+  assert.equal(series.length, 84);
+  assert.equal(series.at(-1).date, '2026-09-23');
+
+  // Check form status classifications
+  assert.equal(formStatus(30).tone, 'warning');
+  assert.equal(formStatus(15).tone, 'fresh');
+  assert.equal(formStatus(0).tone, 'neutral');
+  assert.equal(formStatus(-20).tone, 'optimal');
+  assert.equal(formStatus(-35).tone, 'fatigue');
+});
+
+test('overview view renders Performance Management Chart with curves and badges', () => {
+  const html = shell(fixture(), config);
+  assert.match(html, /Performance Management \(PMC\)/);
+  assert.match(html, /pmc-panel/);
+  assert.match(html, /pmc-line ctl/);
+  assert.match(html, /pmc-line atl/);
+  assert.match(html, /pmc-line tsb/);
+  assert.match(html, /pmc-zone-optimal/);
+});
+
+test('overview view renders Critical Power and MMP profile panel with log-scale curve and W_prime overlay', () => {
+  const f = fixture();
+  f.workouts.push({
+    id: 'cycling-mmp',
+    local_date: '2026-09-02',
+    sport: 'VirtualRide',
+    metrics: { moving_time_s: 3600, average_power_w: 260, max_power_w: 750 },
+  });
+  f.context = {
+    physiology: {
+      current_models: {
+        cycling: {
+          critical_power_watts: 280,
+          w_prime_joules: 22000,
+        },
+      },
+    },
+  };
+  const html = shell(f, config);
+  assert.match(html, /Critical Power & MMP Profile/);
+  assert.match(html, /cp-panel/);
+  assert.match(html, /cp-line asymptote/);
+  assert.match(html, /cp-line hyperbola/);
+  assert.match(html, /cp-w-prime-area/);
+  assert.match(html, /CP <strong>280 W<\/strong>/);
+  assert.match(html, /W' <strong>22\.0 kJ<\/strong>/);
+});

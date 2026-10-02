@@ -2,6 +2,8 @@ import { totals, duration, km, number, escapeHTML as esc } from '../data.js';
 import { names, icon } from '../ui.js';
 import { monthRows, prettyMonth } from '../selectors.js';
 import { trendChart, zones } from './charts.js';
+import { pmcPanel } from './pmc.js';
+import { cpCurvePanel } from './cp_curve.js';
 import { recentTable, miniCalendar } from './recent.js';
 
 export function metricCard(label, value, unit, note, symbol, tone = '') {
@@ -59,6 +61,7 @@ export function overview(state) {
   return /* HTML */ `<section class="metric-grid" aria-label="Monthly training totals">
       ${metrics}
     </section>
+    ${pmcPanel(state)} ${cpCurvePanel(state)}
     <div class="charts-grid">
       <section class="panel trend-panel">
         <div class="panel-heading">
