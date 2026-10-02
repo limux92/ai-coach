@@ -171,27 +171,50 @@ export function pmcSeries(rows, ending, lookbackDays = 84) {
   const decayCtl = Math.exp(-1 / 42);
   const decayAtl = Math.exp(-1 / 7);
 
+  const allDays = Array.from(daily.keys()).sort();
+  const earliestDay = allDays[0];
+
   let ctl = 0;
   let atl = 0;
-  let seeded = false;
+  let latestSeedDay = null;
 
   for (const [day, data] of daily.entries()) {
-    if (day <= start && data.ctl !== null && data.atl !== null) {
-      ctl = data.ctl;
-      atl = data.atl;
-      seeded = true;
+    if (day <= start && isNumber(data.ctl) && isNumber(data.atl)) {
+      if (!latestSeedDay || day >= latestSeedDay) {
+        ctl = data.ctl;
+        atl = data.atl;
+        latestSeedDay = day;
+      }
     }
   }
 
-  if (!seeded) {
-    for (const [, data] of daily.entries()) {
-      if (data.ctl !== null && data.atl !== null) {
+  if (!latestSeedDay) {
+    for (const [day, data] of daily.entries()) {
+      if (isNumber(data.ctl) && isNumber(data.atl)) {
         ctl = data.ctl;
         atl = data.atl;
-        seeded = true;
+        latestSeedDay = day;
         break;
       }
     }
+  }
+
+  const simStart = latestSeedDay || (earliestDay && earliestDay < start ? earliestDay : start);
+  let curDay = simStart;
+  while (curDay < start) {
+    const data = daily.get(curDay);
+    const load = data ? data.load : 0;
+    if (isNumber(data?.ctl)) {
+      ctl = data.ctl;
+    } else {
+      ctl = ctl * decayCtl + load * (1 - decayCtl);
+    }
+    if (isNumber(data?.atl)) {
+      atl = data.atl;
+    } else {
+      atl = atl * decayAtl + load * (1 - decayAtl);
+    }
+    curDay = addDays(curDay, 1);
   }
 
   const series = [];

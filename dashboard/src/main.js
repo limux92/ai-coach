@@ -29,6 +29,7 @@ const state = {
   workouts: [],
   plans: [],
   status: null,
+  context: null,
   loading: true,
   error: null,
   drawer: null,
@@ -62,10 +63,10 @@ async function loadData() {
   const grid = calendarDays(state.month);
   const ending =
     state.month.slice(0, 7) === state.today.slice(0, 7) ? state.today : monthEnd(state.month);
-  const starts = [grid[0], addDays(monday(ending), -77), state.week].sort();
+  const starts = [grid[0], addDays(monday(ending), -126), state.week].sort();
   const ends = [grid.at(-1), addDays(state.week, 6)].sort();
   try {
-    const [workouts, plans, status] = await Promise.all([
+    const [workouts, plans, status, context] = await Promise.all([
       fetchPages('/workouts', starts[0], ends.at(-1), activeController.signal),
       fetchPages(
         '/planned-workouts',
@@ -74,11 +75,13 @@ async function loadData() {
         activeController.signal,
       ),
       api('/status', activeController.signal),
+      api('/context', activeController.signal).catch(() => null),
     ]);
     if (request !== state.request) return;
     state.workouts = [...new Map(workouts.map((w) => [w.id, w])).values()];
     state.plans = [...new Map(plans.map((w) => [w.id, w])).values()];
     state.status = status;
+    state.context = context;
   } catch (error) {
     if (request !== state.request || error.name === 'AbortError') return;
     state.error = error.message;

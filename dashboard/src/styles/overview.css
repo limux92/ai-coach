@@ -397,6 +397,15 @@
 .cp-pill.w-prime {
   border-color: var(--amber);
 }
+.pmc-pill.ctl {
+  border-color: var(--blue);
+}
+.pmc-pill.atl {
+  border-color: var(--amber);
+}
+.pmc-pill.tsb {
+  border-color: var(--teal);
+}
 .pmc-chart-wrap,
 .cp-chart-wrap {
   padding: 8px 16px 14px;
@@ -407,6 +416,103 @@
   width: 100%;
   height: auto;
   display: block;
+}
+.pmc-zone-optimal {
+  fill: var(--teal);
+  opacity: 0.08;
+}
+.pmc-zero-line {
+  stroke: var(--line);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0.8;
+}
+.pmc-grid-line {
+  stroke: var(--line);
+  stroke-width: 0.8;
+  stroke-dasharray: 2 4;
+  opacity: 0.6;
+}
+.pmc-axis-label {
+  fill: var(--muted);
+  font-size: 10px;
+}
+.pmc-load-bar {
+  fill: var(--surface-raised);
+  stroke: var(--line);
+  stroke-width: 0.5;
+  opacity: 0.75;
+}
+.pmc-load-bar:hover {
+  fill: var(--muted);
+  opacity: 1;
+}
+.pmc-line {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.pmc-line.ctl {
+  stroke: var(--blue);
+  stroke-width: 2.5;
+}
+.pmc-line.atl {
+  stroke: var(--amber);
+  stroke-width: 2;
+  opacity: 0.9;
+}
+.pmc-line.tsb {
+  stroke: var(--teal);
+  stroke-width: 1.8;
+  stroke-dasharray: 4 2;
+}
+.pmc-legend {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 20px;
+  font-size: 0.75rem;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+}
+.pmc-legend span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.legend-line {
+  width: 14px;
+  height: 0;
+  display: inline-block;
+  vertical-align: middle;
+}
+.legend-line.ctl {
+  border-top: 3px solid var(--blue);
+}
+.legend-line.atl {
+  border-top: 2.5px solid var(--amber);
+}
+.legend-line.tsb {
+  border-top: 2px dashed var(--teal);
+}
+.legend-box {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+  vertical-align: middle;
+}
+.legend-box.load {
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+}
+.legend-zone {
+  width: 12px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--teal);
+  opacity: 0.25;
+  display: inline-block;
+  vertical-align: middle;
 }
 .cp-grid-line {
   stroke: var(--line);

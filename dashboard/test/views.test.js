@@ -154,3 +154,34 @@ test('overview view renders Critical Power and MMP profile panel with log-scale 
   assert.match(html, /CP <strong>280 W<\/strong>/);
   assert.match(html, /W' <strong>22\.0 kJ<\/strong>/);
 });
+
+test('overview view dynamically estimates CP from workout MMP data when physiology model is null', () => {
+  const f = fixture();
+  f.workouts.push({
+    id: 'ride-20m-test',
+    local_date: '2026-09-02',
+    sport: 'Ride',
+    metrics: { moving_time_s: 1800, average_power_w: 300, max_power_w: 450 },
+  });
+  f.context = null; // No context / no physiology model
+  const html = shell(f, config);
+  // With 1800s ride averaging 300W, 300s/1200s MMP is extracted and CP is derived
+  assert.match(html, /Critical Power & MMP Profile/);
+  assert.doesNotMatch(html, /CP <strong>250 W<\/strong>/); // Should NOT be fixed at 250W
+});
+
+test('pmcSeries warms up CTL and ATL when historical workouts precede the chart window', async () => {
+  const { pmcSeries } = await import('../src/data.js');
+  // 30 daily workouts of load 60 from 2026-06-01 to 2026-06-30
+  const rows = [];
+  for (let d = 1; d <= 30; d++) {
+    const day = d < 10 ? `0${d}` : `${d}`;
+    rows.push({ local_date: `2026-06-${day}`, analysis: { training_load: 60 } });
+  }
+  // Chart window of 14 days starting 2026-07-01
+  const series = pmcSeries(rows, '2026-07-14', 14);
+  assert.equal(series.length, 14);
+  // Day 0 of chart window should already have warm CTL > 0 due to 30 days of prior training
+  assert.ok(series[0].ctl > 25, `Expected warmed-up CTL > 25, got ${series[0].ctl}`);
+  assert.ok(series[0].atl > 25, `Expected warmed-up ATL > 25, got ${series[0].atl}`);
+});

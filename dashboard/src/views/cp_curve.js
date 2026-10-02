@@ -24,12 +24,10 @@ const TICK_DURATIONS = [
 
 export function cpCurvePanel(state) {
   const physiology = state?.context?.physiology?.current_models?.cycling || state?.physiology || {};
-  const cp = isNumber(physiology.critical_power_watts)
+  let cp = isNumber(physiology.critical_power_watts)
     ? Math.round(physiology.critical_power_watts)
-    : 250;
-  const wPrime = isNumber(physiology.w_prime_joules)
-    ? Math.round(physiology.w_prime_joules)
-    : 20000;
+    : null;
+  let wPrime = isNumber(physiology.w_prime_joules) ? Math.round(physiology.w_prime_joules) : null;
 
   const rows = selectedRows(state?.workouts || [], state);
   const cyclingRows = rows.filter((r) => {
@@ -40,6 +38,39 @@ export function cpCurvePanel(state) {
   });
   const mmp = extractMmpEnvelope(cyclingRows.length ? cyclingRows : rows);
   const mmpMap = new Map(mmp.map((item) => [item.duration, item.power]));
+
+  if (cp === null) {
+    const p300 = mmpMap.get(300);
+    const p1200 = mmpMap.get(1200);
+    if (isNumber(p300) && isNumber(p1200) && p1200 * 1200 > p300 * 300) {
+      const derivedCp = (p1200 * 1200 - p300 * 300) / 900;
+      const derivedW = p300 * 300 - derivedCp * 300;
+      if (derivedCp >= 100 && derivedCp <= 600 && derivedW >= 5000 && derivedW <= 50000) {
+        cp = Math.round(derivedCp);
+        wPrime = Math.round(derivedW);
+      }
+    }
+    if (cp === null && isNumber(p1200)) {
+      cp = Math.round(p1200 * 0.95);
+      wPrime = 20000;
+    }
+    if (cp === null && isNumber(p300)) {
+      cp = Math.round(p300 * 0.82);
+      wPrime = 18000;
+    }
+    if (cp === null) {
+      const longRides = cyclingRows.filter((r) => (r.metrics?.moving_time_s || 0) >= 1800);
+      const powers = longRides
+        .map((r) => r.analysis?.weighted_average_power_w || r.metrics?.average_power_w)
+        .filter(isNumber);
+      if (powers.length) {
+        cp = Math.round(Math.max(...powers));
+        wPrime = 20000;
+      }
+    }
+    if (cp === null) cp = 250;
+    if (wPrime === null) wPrime = 20000;
+  }
 
   const width = 640;
   const height = 220;
