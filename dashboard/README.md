@@ -1,33 +1,97 @@
-# Training dashboard
+# Lightweight dashboard
 
-A responsive, read-only training dashboard and calendar served at `/dashboard/` by the existing MCP adapter. Production includes no synthetic training data or private credentials. Firebase web configuration is public configuration, not a training-data credential.
+Plain JavaScript modules, HTML templates and feature stylesheets, inspired by
+JustInterval's simple dark surfaces. Firebase Auth is the only runtime package;
+there is no UI framework, chart library, web font or decorative image download.
+Vite and Prettier run during development/build, not in Cloud Run.
 
-## Build and test
+## Find the right file
+
+Paths below are relative to `dashboard/src/`.
+
+| Change | Source |
+| --- | --- |
+| Dark colors, typography defaults | `styles/tokens.css` |
+| Shared controls, focus, loading/error states | `styles/base.css` |
+| Navigation and responsive layout | `styles/layout.css`, `views/shell.js` |
+| Monthly metrics and recent sessions | `views/overview.js`, `views/recent.js`, `styles/overview.css` |
+| Trend and heart-rate zone charts | `views/charts.js`, `styles/overview.css` |
+| Month/week calendar | `views/calendar.js`, `styles/calendar.css` |
+| Workout details and sample chart | `views/workout.js`, `views/samples.js`, `styles/workout.css` |
+| Sign-in screen | `views/login.js`, `styles/login.css` |
+| App startup, session and initial data loading | `main.js` |
+| Authenticated API and list pagination | `api.js` |
+| Clicks, calendar navigation, keyboard controls | `events.js` |
+| Workout/sample loading and focus restoration | `workout-controller.js` |
+| Dates, aggregates and filtering | `data.js`, `selectors.js` |
+| Icons and shared markup helpers | `ui.js` |
+| Chat authorization flow | `connect.js` |
+
+`style.css` imports the stylesheets; edit the feature file, not the import list.
+Keep missing metrics unknown, historical zone definitions separate and source
+attribution visible. Keep authentication changes with the primary assistant.
+
+## Develop and check
+
+From `dashboard/`:
 
 ```sh
-cd dashboard
 npm ci
-npm test
-npm run build
+npm run dev     # http://127.0.0.1:5174/dashboard/
+npm run format # format readable source
+npm run check  # format check, Node tests, production build, size budgets
 ```
 
-The Vite build writes self-hosted assets to `../adapters/mcp/static/dashboard/`. Build before deploying the MCP adapter. Dependencies are pinned and the lockfile is committed with this source.
-
-`npm run dev` serves the source on `127.0.0.1:5174`. A local gateway/config endpoint and registered callback are required for authenticated development; standalone Vite does not bypass authentication.
+Development still needs the authenticated `/dashboard/config` and API service;
+the Vite server alone is not a working data demo. Do not add an authentication
+bypass or personal fixtures to production. Tests use Node's built-in runner in
+`test/`. Production output goes to ignored `../adapters/mcp/static/dashboard`.
+The existing Python service serves these static files; building is not deploying.
 
 ## Runtime contract
 
-The page obtains Firebase web settings from `/dashboard/config` and signs in with Google. Firebase sessions use session storage and are cleared on sign-out; training data is not persisted in browser storage. The API accepts only signed ID tokens for the configured owner. `/dashboard/connect` handles explicit OAuth consent for the chat client. See [Firebase authentication](../docs/FIREBASE_AUTH.md).
+Imported records remain read-only. Refresh reloads the view without starting a
+source sync. Training plan generation is handled conversationally through the AI
+Coach chat connection (see `docs/AI_COACH_SYSTEM_PROMPT.md`).
+Firebase public web configuration comes from `/dashboard/config`; Google sign-in
+uses session storage. Training records are not persisted in browser storage.
+`/dashboard/api` accepts signed ID tokens for the configured owner.
+`/dashboard/connect` handles explicit chat-client OAuth consent; see the
+[Firebase runbook](../docs/FIREBASE_AUTH.md). Local authenticated development
+also needs a registered callback.
 
-Authenticated reads go to `/dashboard/api`. Workout and plan pages follow `next_cursor`; sample pages follow `next_offset`. Date arithmetic uses the configured athlete timezone for today and UTC arithmetic for date-only calendars, including leap days and year boundaries.
+Workout and plan lists follow `next_cursor`; sample pages follow `next_offset`.
+The athlete timezone determines today, while date-only calendar arithmetic uses
+UTC. Virtual distances and partial/downsampled profiles are labeled. Blank dates
+do not imply rest. Summary-only records retain their sample-availability warning.
+Keyboard support includes visible focus, a skip link, dialog focus trapping and
+Escape to close. Dense tables and calendars scroll within their panels on mobile.
 
-## Views and data semantics
+## Size budgets
 
-- Monthly overview: duration, distance, completed sessions, provider-estimated training load, 12-week volume chart, historical HR zones, recent sessions, activity-day calendar.
-- Monday-first month/week calendar: completed and planned sessions, weekly totals, sport filters, direct month picker, Today/previous/next navigation.
-- Workout drawer: source identity, available metrics, notes, lap count, HR zones, and paginated heart-rate/power samples. Partial and downsampled profiles are explicitly labeled.
-- Different HR boundary definitions and sports remain separate. Missing measurements remain unknown; partial metric coverage is stated. Virtual distances are labeled. Empty dates do not imply rest. Large archived FITs show the backend's summary-only sample limitation.
+Keep each source JS/CSS file at most 12,000 bytes and each line at most 240
+characters. Production budgets total every emitted asset: JavaScript at most
+50,000 gzip bytes and CSS at most 6,000. `npm run check` and CI enforce these.
+Readable source and minified build output serve different purposes. Formatting
+alone does not reduce Cloud Run CPU or memory usage.
 
-The dashboard displays already imported records. It does not create workouts or write plans, and the refresh button reloads the view without initiating a source sync.
+## Small local-model tasks
 
-Keyboard support includes visible focus, a skip link, dialog focus trapping, Escape to close, and native month/select controls. Layout adapts to mobile; the dense calendar scrolls horizontally on narrow screens.
+From the repository root, once the relevant source is tracked:
+
+```sh
+.venv/bin/python scripts/local_worker.py \
+  'Make the background slightly darker. Preserve variable names and readable text. Return this file only.' \
+  --task refactor --file dashboard/src/styles/tokens.css --label 'Adjust dark palette'
+```
+
+For a function, use `--file path:START:END` (inclusive). The helper accepts only
+tracked source, limits the total prompt to 12 KB, uses 16K context, defaults to
+2,048 output tokens and a 120-second timeout, and keeps the model loaded for five
+minutes afterward. Use one request at a time. Give concrete acceptance criteria;
+do not attach lockfiles, generated output, secrets or training records.
+
+Review the saved `.local/worker/` draft before applying it. Run focused checks,
+allow at most one correction, then narrow the task if needed. An incomplete
+draft exits with code 2 and must not be applied. These limits make small tasks
+more manageable; they do not guarantee every GPT-oss response is correct.

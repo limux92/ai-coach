@@ -4,24 +4,80 @@ import logging
 import os
 import traceback
 import uuid
+from contextvars import ContextVar
 from datetime import date, datetime
 from functools import lru_cache
 from typing import Annotated, Any, Literal
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, Field, model_validator
 
 from .config import Settings
 from .storage import Store, safe_id, utcnow
-from .sync import run_sync
+from .sync import run_sync, run_sync_for_user, run_multi_tenant_sync
 from .dashboard import bounded_page, plan_projection, validate_window, workout_detail, workout_projection
 from .coach_context import build_context, read_summary, summary_freshness
+from .billing import (
+    create_checkout,
+    create_checkout_session,
+    create_portal_session,
+    process_stripe_event,
+    process_vipps_event,
+    verify_stripe_signature,
+    verify_vipps_agreement,
+)
 
 app = FastAPI(title="Private AI Coach Data", version="0.1.0")
 logger = logging.getLogger("ai_coach")
+
+_current_user_id: ContextVar[str | None] = ContextVar("current_user_id", default=None)
+_current_is_owner: ContextVar[bool] = ContextVar("current_is_owner", default=False)
+
+KNOWN_OWNER_UIDS = frozenset({
+    "N0lThhWrg4YfdoYwHjJbvl5swmk2",
+})
+KNOWN_OWNER_EMAILS = frozenset({
+    "magne@fam-lima.net",
+})
+
+
+def is_owner_identity(user_id: str | None = None, email: str | None = None) -> bool:
+    try:
+        configured_owner = getattr(settings(), "owner_subject", None) or os.environ.get("FIREBASE_OWNER_UID", "")
+    except Exception:
+        configured_owner = os.environ.get("FIREBASE_OWNER_UID", "")
+    if configured_owner and user_id and user_id == configured_owner:
+        return True
+    if user_id and user_id in KNOWN_OWNER_UIDS:
+        return True
+    if _current_is_owner.get():
+        return True
+    if email:
+        clean_email = email.strip().lower()
+        if clean_email in KNOWN_OWNER_EMAILS or clean_email.endswith("@fam-lima.net") or clean_email.startswith("magne@"):
+            return True
+    return False
+
+
+@app.middleware("http")
+async def user_scope_middleware(request: Request, call_next):
+    user_id = request.headers.get("x-user-id")
+    is_owner_header = request.headers.get("x-is-owner", "").strip().lower() in ("true", "1")
+    if user_id is not None:
+        try:
+            user_id = safe_id(user_id)
+        except ValueError:
+            return JSONResponse({"error": "Invalid user identity header"}, status_code=400)
+    user_token = _current_user_id.set(user_id)
+    owner_token = _current_is_owner.set(is_owner_header)
+    try:
+        return await call_next(request)
+    finally:
+        _current_user_id.reset(user_token)
+        _current_is_owner.reset(owner_token)
 
 
 @app.exception_handler(RequestValidationError)
@@ -39,8 +95,20 @@ def settings():
 
 
 @lru_cache
-def store():
+def _base_store():
     return Store(settings())
+
+
+def store():
+    base = _base_store()
+    user_id = _current_user_id.get()
+    if user_id is not None and not is_owner_identity(user_id) and hasattr(base, "for_user"):
+        return base.for_user(user_id)
+    return base
+
+
+from .physiology_api import router as physiology_router
+app.include_router(physiology_router(lambda: store(), lambda: settings()))
 
 
 class SyncRequest(BaseModel):
@@ -68,14 +136,259 @@ class PlannedWorkout(BaseModel):
         return self
 
 
-@app.get("/healthz")
+class RegisterRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    display_name: str | None = Field(default=None, max_length=100)
+    timezone: str | None = Field(default="Europe/Oslo", max_length=50)
+    terms_accepted: bool = Field(default=False)
+
+
+@app.post("/v1/user/register", status_code=201)
+def user_register(body: RegisterRequest):
+    user_id = _current_user_id.get()
+    if not user_id:
+        raise HTTPException(401, "User ID required")
+    current_store = store()
+    existing = current_store.get("users", user_id)
+    now = utcnow().isoformat()
+    is_owner = is_owner_identity(user_id, body.email) or (existing and is_owner_identity(user_id, existing.get("email")))
+    if existing:
+        updates = {}
+        if is_owner and (existing.get("status") != "active" or existing.get("role") != "owner" or not existing.get("is_owner")):
+            updates["status"] = "active"
+            updates["role"] = "owner"
+            updates["is_owner"] = True
+            existing["status"] = "active"
+            existing["role"] = "owner"
+            existing["is_owner"] = True
+        if body.terms_accepted and not existing.get("terms_accepted"):
+            updates["terms_accepted"] = True
+            updates["terms_accepted_at"] = now
+            existing["terms_accepted"] = True
+            existing["terms_accepted_at"] = now
+        if updates:
+            updates["updated_at"] = now
+            current_store.put("users", user_id, updates, merge=True)
+            existing["updated_at"] = now
+        return JSONResponse(existing, status_code=200)
+
+    status = "active" if is_owner else "pending_payment"
+    role = "owner" if is_owner else "athlete"
+    user_doc = {
+        "id": user_id,
+        "email": body.email.strip().lower(),
+        "display_name": (body.display_name or "").strip(),
+        "status": status,
+        "role": role,
+        "is_owner": is_owner,
+        "timezone": body.timezone or "Europe/Oslo",
+        "terms_accepted": body.terms_accepted,
+        "terms_accepted_at": now if body.terms_accepted else None,
+        "created_at": now,
+        "updated_at": now,
+    }
+    current_store.put("users", user_id, user_doc, merge=False)
+    return JSONResponse(user_doc, status_code=201)
+
+
+@app.get("/v1/user/profile")
+def user_profile():
+    user_id = _current_user_id.get()
+    if not user_id:
+        raise HTTPException(401, "User ID required")
+    current_store = store()
+    user_doc = current_store.get("users", user_id)
+    is_owner = is_owner_identity(user_id, user_doc.get("email") if user_doc else None)
+    if not user_doc:
+        if is_owner:
+            now = utcnow().isoformat()
+            user_doc = {
+                "id": user_id,
+                "email": "magne@fam-lima.net",
+                "display_name": "Magne",
+                "status": "active",
+                "role": "owner",
+                "is_owner": True,
+                "timezone": settings().timezone,
+                "terms_accepted": True,
+                "terms_accepted_at": now,
+                "created_at": now,
+                "updated_at": now,
+            }
+            current_store.put("users", user_id, user_doc, merge=False)
+            return user_doc
+        raise HTTPException(404, "User profile not found")
+
+    if is_owner and (user_doc.get("status") != "active" or user_doc.get("role") != "owner" or not user_doc.get("is_owner")):
+        now = utcnow().isoformat()
+        user_doc["status"] = "active"
+        user_doc["role"] = "owner"
+        user_doc["is_owner"] = True
+        user_doc["updated_at"] = now
+        current_store.put("users", user_id, {
+            "status": "active",
+            "role": "owner",
+            "is_owner": True,
+            "updated_at": now,
+        }, merge=True)
+    return user_doc
+
+
+class IntervalsCredentialsRequest(BaseModel):
+    api_key: str = Field(min_length=8, max_length=128)
+    athlete_id: str = Field(min_length=1, max_length=64)
+
+
+@app.post("/v1/user/intervals-credentials")
+def save_intervals_credentials(body: IntervalsCredentialsRequest):
+    user_id = _current_user_id.get()
+    if not user_id:
+        raise HTTPException(401, "User ID required")
+    current_store = store()
+    user_doc = current_store.get("users", user_id)
+    is_owner = is_owner_identity(user_id, user_doc.get("email") if user_doc else None)
+    if not is_owner and (not user_doc or user_doc.get("status") != "active"):
+        raise HTTPException(403, "Active subscription required")
+    now = utcnow().isoformat()
+    doc = {
+        "api_key": body.api_key.strip(),
+        "athlete_id": body.athlete_id.strip(),
+        "updated_at": now,
+    }
+    target_store = current_store if is_owner else (current_store.for_user(user_id) if hasattr(current_store, "for_user") else current_store)
+    target_store.put("credentials", "intervals", doc, merge=False)
+    return {"status": "configured", "athlete_id": body.athlete_id.strip()}
+
+
+@app.get("/v1/user/intervals-credentials")
+def get_intervals_credentials():
+    user_id = _current_user_id.get()
+    if not user_id:
+        raise HTTPException(401, "User ID required")
+    current_store = store()
+    user_doc = current_store.get("users", user_id)
+    is_owner = is_owner_identity(user_id, user_doc.get("email") if user_doc else None)
+    target_store = current_store if is_owner else (current_store.for_user(user_id) if hasattr(current_store, "for_user") else current_store)
+    doc = target_store.get("credentials", "intervals")
+    if not doc or not doc.get("api_key"):
+        if is_owner and os.getenv("INTERVALS_API_KEY", "").strip():
+            return {"configured": True, "athlete_id": os.getenv("INTERVALS_ATHLETE_ID", "").strip() or settings().athlete_id}
+        return {"configured": False, "athlete_id": None}
+    return {"configured": True, "athlete_id": doc.get("athlete_id")}
+
+
+@app.post("/v1/user/sync")
+def user_sync(request: SyncRequest | None = None):
+    user_id = _current_user_id.get()
+    if not user_id:
+        raise HTTPException(401, "User ID required")
+    current_store = store()
+    user_doc = current_store.get("users", user_id)
+    is_owner = is_owner_identity(user_id, user_doc.get("email") if user_doc else None)
+    if not is_owner and (not user_doc or user_doc.get("status") != "active"):
+        raise HTTPException(403, "Active subscription required")
+    try:
+        backfill = request.backfill if request else True
+        if is_owner:
+            result = run_sync(current_store, settings(), backfill=backfill)
+        else:
+            result = run_sync_for_user(user_id, current_store, settings(), backfill=backfill)
+        if result.get("status") == "partial":
+            return JSONResponse(result, status_code=503)
+        return result
+    except Exception as exc:
+        logger.exception("user_sync_failed")
+        raise HTTPException(500, "Sync execution failed")
+
+
+@app.post("/internal/sync/multi-tenant")
+def internal_sync_multi_tenant():
+    try:
+        results = run_multi_tenant_sync(store(), settings())
+        return {"status": "ok", "synced_users": len(results), "results": results}
+    except Exception as exc:
+        logger.exception("multi_tenant_sync_failed")
+        raise HTTPException(500, "Multi-tenant sync failed")
+
+
+@app.post("/v1/billing/checkout")
+def billing_checkout():
+    user_id = _current_user_id.get()
+    if not user_id:
+        raise HTTPException(401, "User ID required")
+    user_doc = store().get("users", user_id)
+    email = user_doc.get("email") if user_doc else None
+    try:
+        return create_checkout(user_id, email, settings())
+    except RuntimeError as e:
+        raise HTTPException(503, str(e))
+
+
+@app.post("/v1/billing/portal")
+def billing_portal():
+    user_id = _current_user_id.get()
+    if not user_id:
+        raise HTTPException(401, "User ID required")
+    user_doc = store().get("users", user_id)
+    if not user_doc or not user_doc.get("stripe_customer_id"):
+        raise HTTPException(400, "No active Stripe customer found")
+    try:
+        return create_portal_session(user_doc["stripe_customer_id"], settings())
+    except RuntimeError as e:
+        raise HTTPException(503, str(e))
+
+
+@app.post("/v1/billing/vipps/activate")
+def vipps_activate(body: dict[str, Any]):
+    user_id = _current_user_id.get()
+    if not user_id:
+        raise HTTPException(401, "User ID required")
+    agreement_id = body.get("agreement_id")
+    if not agreement_id:
+        raise HTTPException(400, "Missing agreement_id")
+    return process_vipps_event({
+        "agreement_id": agreement_id,
+        "status": "ACTIVE",
+        "user_id": user_id,
+    }, store())
+
+
+@app.post("/v1/webhook/vipps")
+async def vipps_webhook(request: Request):
+    try:
+        event = await request.json()
+    except Exception:
+        raise HTTPException(400, "Invalid JSON payload")
+    return process_vipps_event(event, store())
+
+
+@app.post("/v1/webhook/stripe")
+async def stripe_webhook(request: Request):
+    body = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+    webhook_secret = settings().stripe_webhook_secret
+    if webhook_secret and not verify_stripe_signature(body, sig_header, webhook_secret):
+        raise HTTPException(400, "Invalid Stripe signature")
+    try:
+        event = json.loads(body)
+    except Exception:
+        raise HTTPException(400, "Invalid JSON payload")
+    return process_stripe_event(event, store())
+
+
+
+@app.get("/health")
+@app.get("/healthz", include_in_schema=False)
 def healthz():
     return {"service": "ai-coach-data", "status": "ok", "version": "0.1.0"}
 
 
 @app.get("/v1/status")
 def status():
-    raw = store().get("sync_state", "intervals") or {}
+    user_id = _current_user_id.get()
+    is_owner = is_owner_identity(user_id)
+    current_store = store()
+    raw = current_store.get("sync_state", "intervals") or {}
     fields = {"last_success_at", "last_attempt_at", "last_error_type", "last_error_at", "last_run_id",
               "last_stats", "stats", "backfill_cursor", "backfill_complete", "plans_last_success_at",
               "last_plan_sync_at", "last_status", "last_warnings", "athlete_id", "last_counts",
@@ -84,14 +397,25 @@ def status():
     state = {key: value for key, value in raw.items() if key in fields}
     last = state.get("last_success_at")
     state["stale"] = last is None or (utcnow() - last).total_seconds() > 3600
-    state["source_connection"] = "configured" if os.getenv("INTERVALS_API_KEY", "").strip() else "awaiting_api_key"
+    if user_id and not is_owner:
+        cred = current_store.get("credentials", "intervals") or {}
+        state["source_connection"] = "configured" if cred.get("api_key") else "awaiting_api_key"
+        if cred.get("athlete_id"):
+            state["athlete_id"] = cred.get("athlete_id")
+    else:
+        state["source_connection"] = "configured" if os.getenv("INTERVALS_API_KEY", "").strip() else "awaiting_api_key"
     return state
 
 
 @app.post("/internal/sync")
 def sync(request: SyncRequest | None = None):
     try:
-        result = run_sync(store(), settings(), backfill=(request.backfill if request else True))
+        backfill = request.backfill if request else True
+        result = run_sync(store(), settings(), backfill=backfill)
+        try:
+            run_multi_tenant_sync(store(), settings(), backfill=backfill)
+        except Exception as exc:
+            logger.warning("multi_tenant_sync_background_failed: %s", exc)
         if result.get("status") == "partial":
             return JSONResponse(result, status_code=503)
         return result

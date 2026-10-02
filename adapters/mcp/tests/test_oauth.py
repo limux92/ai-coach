@@ -135,11 +135,35 @@ def test_metadata_and_revocation(flow):
     client, provider, settings, _ = flow
     metadata = client.get('/.well-known/oauth-authorization-server').json()
     assert metadata['issuer'] == settings.oauth_issuer
+    assert metadata['authorization_response_iss_parameter_supported'] is True
     assert metadata['code_challenge_methods_supported'] == ['S256']
     data, tokens = exchange(flow)
     response = client.post('/revoke', data={'client_id': data['client_id'], 'token': tokens['refresh_token'], 'token_type_hint': 'refresh_token'})
     assert response.status_code == 200
     assert rpc(client, tokens['access_token']).status_code == 401
+
+
+@pytest.mark.parametrize('changes', [
+    {'scope': 'coach:write'}, {'response_type': 'token'},
+    {'code_challenge': 'invalid'}, {'code_challenge_method': 'plain'},
+])
+def test_authorization_error_callbacks_identify_exact_issuer(flow, changes):
+    _, response = start(flow, changes=changes)
+    assert response.status_code == 302
+    target = urlsplit(response.headers['location'])
+    allowed = urlsplit(flow[2].oauth_redirect_uris[0])
+    assert (target.scheme, target.netloc, target.path) == (allowed.scheme, allowed.netloc, allowed.path)
+    query = parse_qs(target.query)
+    assert 'error' in query and 'code' not in query
+    assert query['iss'] == [flow[2].oauth_issuer]
+    assert query['state'] == ['client-csrf-state']
+    assert response.headers['cache-control'] == 'no-store'
+
+
+def test_unregistered_callback_never_receives_authorization_error(flow):
+    _, response = start(flow, changes={'redirect_uri': 'https://evil.example/cb'})
+    assert response.status_code == 400
+    assert 'location' not in response.headers
 
 
 def test_limits_and_duplicates(flow):

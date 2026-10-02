@@ -7,9 +7,14 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "format": "prettier --write src test scripts index.html vite.config.js",
+    "format:check": "prettier --check src test scripts index.html vite.config.js",
+    "budget": "node scripts/check-budget.js",
+    "check": "npm run format:check && npm test && npm run build && npm run budget"
   },
   "devDependencies": {
+    "prettier": "3.9.9",
     "vite": "7.3.6"
   },
   "dependencies": {
