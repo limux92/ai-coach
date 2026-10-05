@@ -5,6 +5,20 @@ by Magne when moving the main conversation to Gemini. It supersedes older role
 assignments that made Codex the conversational lead and Gemini an infrastructure
 worker. It records decisions and evidence; it does not authorize a deployment.
 
+## 5 October continuation
+
+Outcomes completed & verified:
+1. Dashboard Event Routing & Shell Action Binding:
+   - Fixed unbound `shell` action in `dashboard/src/main.js` and added defensive fallback in `dashboard/src/events.js`.
+   - Restored interactive navigation: clicking sport filters ("Running", "Cycling", etc.), "View calendar", sidebar calendar link, week/month layout toggles, and Intervals.icu modal triggers now execute smoothly without console exceptions.
+   - Authored dedicated unit test suite `dashboard/test/events.test.js` (4 tests).
+2. Cloud Release & Verification:
+   - Commit: `e842c9feb212039221fd8d0ddaeddcffeaa91b0b` on `release/lightweight-dark-dashboard` (PR #4, 4/4 CI checks passed).
+   - Deployment receipt: `.local/deployments/261005-124238-4d78/summary.json`.
+   - Deployed revisions at 100% traffic: `ai-coach-sync-r-e842c9fe-261005-124238-4d78` and `ai-coach-chat-r-e842c9fe-261005-124238-4d78`.
+   - Public dashboard verified live at `https://aiworkoutbuilder.app/dashboard/` (HTTP 200).
+3. Quality gates: 644 backend tests, 205 adapter tests, 24 dashboard tests pass; JS gzip 49.09 KB / CSS 5.76 KB within limits.
+
 ## 2 October continuation
 
 Outcomes completed & verified:

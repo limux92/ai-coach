@@ -1,9 +1,9 @@
 # AI Coach — Current Context & Handoff
 
-**Updated: 2 October 2026**
-**Active Branch:** `release/lightweight-dark-dashboard` (HEAD `f26e665`)
-**Production Release:** `f26e6658737aea62ee9533a310982f504b32d3eb` (`release/lightweight-dark-dashboard`), serving revisions at 100%.
-**Active Revisions:** `ai-coach-sync-r-f26e6658-261002-202554-2bc8`, `ai-coach-chat-r-f26e6658-261002-202554-2bc8`
+**Updated: 5 October 2026**
+**Active Branch:** `release/lightweight-dark-dashboard` (HEAD `e842c9f`)
+**Production Release:** `e842c9feb212039221fd8d0ddaeddcffeaa91b0b` (`release/lightweight-dark-dashboard`), serving revisions at 100%.
+**Active Revisions:** `ai-coach-sync-r-e842c9fe-261005-124238-4d78`, `ai-coach-chat-r-e842c9fe-261005-124238-4d78`
 
 ---
 
@@ -98,8 +98,12 @@ To ensure the AI never prompts for file writes or commands again:
     - Default dashboard month/week on initial load automatically jumps to the latest workout month (September 2026) when the current month is empty, so athletes immediately see their workouts.
     - Recent sessions table displays latest historical sessions with fallback notice instead of an empty banner.
     - Intervals modal displays active "Tilkoblet" status and auto-sync notice for configured users.
+  - **Step 8: Dashboard Event Routing & Shell Action Binding**:
+    - Fixed unbound `shell` action in `bindEvents` in `dashboard/src/main.js`, resolving button click failures for sport filters ("Running", "Cycling", etc.), "View calendar" and sidebar navigation, and Intervals modal.
+    - Added defensive default for `shell` in `dashboard/src/events.js`.
+    - Added unit test suite `dashboard/test/events.test.js` covering all navigation and filter click handlers.
   - **Automated Verification & Gates**:
     - Standalone E2E verification test suite [`scripts/test_onboarding_billing.py`](scripts/test_onboarding_billing.py) passing all 9/9 checks in 0.04s.
-    - 644 backend tests, 205 adapter tests, 22 dashboard tests passing.
-    - Bundle budget passed: JS gzip 49,985 / 50,000 bytes; CSS gzip 5,757 / 6,000 bytes.
+    - 644 backend tests, 205 adapter tests, 24 dashboard tests passing.
+    - Bundle budget passed: JS gzip 49,091 / 50,000 bytes; CSS gzip 5,757 / 6,000 bytes.
     - Deployed to Google Cloud Run (`ai-coach-sync` & `ai-coach-chat`) at 100% traffic; live at `https://aiworkoutbuilder.app/dashboard/`.
