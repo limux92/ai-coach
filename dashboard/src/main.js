@@ -263,6 +263,7 @@ bindEvents(state, drawerRoot, {
       body: JSON.stringify({ backfill: true }),
     }).catch(() => {});
   },
+  shell,
   loadData,
 });
 void boot();

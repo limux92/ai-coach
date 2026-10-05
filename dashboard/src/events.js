@@ -9,7 +9,7 @@ export function bindEvents(state, drawerRoot, actions) {
     loadSamples,
     renderDrawer,
     openDrawer,
-    shell,
+    shell = () => {},
     loadData,
   } = actions;
   document.addEventListener('click', (event) => {
