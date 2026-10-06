@@ -94,3 +94,4 @@ Grounded in the alignment interview with Magne:
 6. **Token Metering & Bypass:** Token consumption is recorded per athlete; owner (`magne@fam-lima.net`) is zero-rated and unblocked.
 7. **Budget Compliance:** Running `npm --prefix dashboard run check` verifies JS gzip $\le$ 50,000 bytes and CSS gzip $\le$ 6,000 bytes for the initial load.
 8. **Test Coverage:** Full test coverage across backend (`tests/test_chat.py`), MCP gateway, and frontend (`dashboard/test/chat.test.js`).
+

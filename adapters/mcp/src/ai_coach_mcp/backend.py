@@ -19,7 +19,8 @@ ALLOWED_ROUTES = re.compile(
     r"physiology/(?:sessions|models/[a-zA-Z0-9_.-]{1,180}|analyses/[a-zA-Z0-9_.-]{1,180}(?:/events)?)|"
     r"dashboard/(?:workouts|planned-workouts|workouts/[a-zA-Z0-9_.-]{1,180})|"
     r"workouts/[a-zA-Z0-9_.-]{1,180}(?:/samples|/physiology)?|"
-    r"user/(?:register|profile|intervals-credentials|sync)|"
+    r"user/(?:register|profile|intervals-credentials|sync|goal)|"
+    r"chat/(?:history|stream)|"
     r"billing/(?:checkout|portal|vipps/activate))\Z")
 
 
@@ -142,3 +143,51 @@ class BackendClient:
         except Exception:
             logger.warning("backend_post_failed")
             raise BackendError("The coach backend is temporarily unavailable") from None
+
+    async def stream_post(self, path: str, json_data: dict[str, Any] | None = None, *, user_id: str | None = None):
+        if not ALLOWED_ROUTES.fullmatch(path) or "/../" in path or path.endswith("/.."):
+            raise BackendError("Unsupported backend operation")
+        try:
+            token = await self.token_provider.token()
+            headers = {
+                "Authorization": "Bearer " + token,
+                "Accept": "text/event-stream, application/json",
+                "Content-Type": "application/json",
+            }
+            if user_id:
+                headers["X-User-Id"] = user_id
+                if user_id == self.settings.owner_subject or user_id in ("N0lThhWrg4YfdoYwHjJbvl5swmk2",):
+                    headers["X-Is-Owner"] = "true"
+
+            req = self.client.build_request(
+                "POST",
+                self.settings.backend_url + path,
+                json=json_data or {},
+                headers=headers,
+                timeout=60.0,
+            )
+            response = await self.client.send(req, stream=True)
+            if response.status_code == 403:
+                await response.aclose()
+                raise BackendError("Active subscription required", status_code=403)
+            if response.status_code == 422:
+                await response.aclose()
+                raise BackendError("The backend rejected these request parameters", status_code=422)
+            if response.status_code != 200:
+                await response.aclose()
+                raise BackendError("The coach backend is temporarily unavailable", status_code=response.status_code)
+
+            async def body_stream():
+                try:
+                    async for chunk in response.aiter_bytes():
+                        yield chunk
+                finally:
+                    await response.aclose()
+
+            return body_stream()
+        except BackendError:
+            raise
+        except Exception:
+            logger.warning("backend_stream_post_failed")
+            raise BackendError("The coach backend is temporarily unavailable") from None
+

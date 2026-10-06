@@ -11,7 +11,7 @@ from typing import Annotated, Any, Literal
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, Field, model_validator
 
@@ -28,6 +28,14 @@ from .billing import (
     process_vipps_event,
     verify_stripe_signature,
     verify_vipps_agreement,
+)
+from .chat_service import (
+    assemble_system_instruction,
+    call_gemini_stream,
+    count_words,
+    validate_goal,
+    MAX_MESSAGE_LENGTH,
+    DEFAULT_GEMINI_MODEL,
 )
 
 app = FastAPI(title="Private AI Coach Data", version="0.1.0")
@@ -141,6 +149,14 @@ class RegisterRequest(BaseModel):
     display_name: str | None = Field(default=None, max_length=100)
     timezone: str | None = Field(default="Europe/Oslo", max_length=50)
     terms_accepted: bool = Field(default=False)
+
+
+class GoalRequest(BaseModel):
+    goal: str = Field(default="", max_length=2000)
+
+
+class ChatStreamRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=MAX_MESSAGE_LENGTH)
 
 
 @app.post("/v1/user/register", status_code=201)
@@ -299,6 +315,103 @@ def user_sync(request: SyncRequest | None = None):
     except Exception as exc:
         logger.exception("user_sync_failed")
         raise HTTPException(500, "Sync execution failed")
+
+
+@app.get("/v1/user/goal")
+def get_user_goal():
+    user_id = _current_user_id.get()
+    if not user_id:
+        raise HTTPException(401, "User ID required")
+    current_store = store()
+    return current_store.get_athlete_goal()
+
+
+@app.post("/v1/user/goal")
+def save_user_goal(body: GoalRequest):
+    user_id = _current_user_id.get()
+    if not user_id:
+        raise HTTPException(401, "User ID required")
+    try:
+        word_count = validate_goal(body.goal)
+    except ValueError as err:
+        raise HTTPException(400, str(err))
+    current_store = store()
+    return current_store.save_athlete_goal(body.goal, word_count)
+
+
+@app.get("/v1/chat/history")
+def get_chat_history(limit: Annotated[int, Query(ge=1, le=50)] = 20):
+    user_id = _current_user_id.get()
+    if not user_id:
+        raise HTTPException(401, "User ID required")
+    current_store = store()
+    return current_store.list_chat_messages(limit=limit)
+
+
+@app.post("/v1/chat/stream")
+async def chat_stream(body: ChatStreamRequest):
+    user_id = _current_user_id.get()
+    if not user_id:
+        raise HTTPException(401, "User ID required")
+    current_store = store()
+    user_doc = current_store.get("users", user_id)
+    is_owner = is_owner_identity(user_id, user_doc.get("email") if user_doc else None)
+    if not is_owner and (not user_doc or user_doc.get("status") != "active"):
+        raise HTTPException(403, "Active subscription required")
+
+    now = utcnow().isoformat()
+    user_msg_id = f"msg_user_{uuid.uuid4().hex[:12]}"
+    current_store.save_chat_message(user_msg_id, {
+        "id": user_msg_id,
+        "role": "user",
+        "content": body.message,
+        "created_at": now,
+    })
+
+    history = current_store.list_chat_messages(limit=10)
+    system_instruction = assemble_system_instruction(current_store, user_id=user_id)
+    api_key = settings().gemini_api_key
+    model = settings().gemini_model or DEFAULT_GEMINI_MODEL
+
+    async def event_generator():
+        collected_chunks = []
+        final_usage = {"prompt_tokens": 0, "completion_tokens": 0}
+        try:
+            async for chunk, usage in call_gemini_stream(api_key, model, system_instruction, history, body.message):
+                if chunk:
+                    collected_chunks.append(chunk)
+                    yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+                if usage:
+                    final_usage = usage
+
+            full_reply = "".join(collected_chunks)
+            asst_msg_id = f"msg_asst_{uuid.uuid4().hex[:12]}"
+            asst_time = utcnow().isoformat()
+            current_store.save_chat_message(asst_msg_id, {
+                "id": asst_msg_id,
+                "role": "model",
+                "content": full_reply,
+                "created_at": asst_time,
+                "tokens": final_usage.get("completion_tokens", 0),
+            })
+
+            if not is_owner:
+                usage_id = f"tok_{uuid.uuid4().hex[:12]}"
+                current_store.record_token_usage(usage_id, {
+                    "id": usage_id,
+                    "user_id": user_id,
+                    "prompt_tokens": final_usage.get("prompt_tokens", 0),
+                    "completion_tokens": final_usage.get("completion_tokens", 0),
+                    "model": model,
+                    "created_at": asst_time,
+                })
+
+            yield f"data: {json.dumps({'done': True, 'usage': final_usage})}\n\n"
+        except Exception as exc:
+            logger.exception("chat_stream_failed")
+            yield f"data: {json.dumps({'error': 'Chat stream failed', 'done': True})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @app.post("/internal/sync/multi-tenant")

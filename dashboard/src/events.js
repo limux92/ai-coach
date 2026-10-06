@@ -1,7 +1,9 @@
 import { addDays, monthStart, shiftMonth, monday } from './data.js';
+import { toggleChatDrawer, closeChatDrawer } from './views/chat.js';
 
 export function bindEvents(state, drawerRoot, actions) {
   const {
+    api,
     signIn,
     clearSession,
     logout,
@@ -18,6 +20,12 @@ export function bindEvents(state, drawerRoot, actions) {
     const action = target.dataset.action;
     if (action === 'auth-mode') return void actions.setAuthMode?.(target.dataset.mode);
     if (action === 'login') return void signIn();
+    if (action === 'open-chat') {
+      return void toggleChatDrawer(actions.api || api);
+    }
+    if (action === 'close-chat') {
+      return void closeChatDrawer();
+    }
     if (action === 'checkout') return void actions.checkout?.();
     if (action === 'toggle-terms') {
       const box = document.getElementById('terms-box');

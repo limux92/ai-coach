@@ -25,6 +25,8 @@ class Settings:
     vipps_price_amount: int = 19900
     vipps_currency: str = "NOK"
     dashboard_url: str = "http://localhost:8000/dashboard"
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-1.5-pro"
 
     @classmethod
     def from_env(cls):
@@ -50,4 +52,6 @@ class Settings:
             vipps_price_amount=int(os.getenv("VIPPS_PRICE_AMOUNT", "19900")),
             vipps_currency=os.getenv("VIPPS_CURRENCY", "NOK"),
             dashboard_url=os.getenv("DASHBOARD_URL", "http://localhost:8000/dashboard"),
+            gemini_api_key=os.getenv("GEMINI_API_KEY"),
+            gemini_model=os.getenv("GEMINI_MODEL", "gemini-1.5-pro"),
         )

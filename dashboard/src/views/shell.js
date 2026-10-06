@@ -164,6 +164,9 @@ export function shell(state, config) {
           >
         </footer>
       </main>
+      <button class="coach-fab" data-action="open-chat" aria-label="Åpne AI Coach" title="AI Coach">
+        💬
+      </button>
     </div>
     ${state.showIntervalsModal ? intervalsModalHTML(state) : ''}
   </div>`;

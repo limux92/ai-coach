@@ -8,7 +8,8 @@ body {
 }
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 button,
@@ -52,7 +53,7 @@ a:focus-visible,
 input:focus-visible,
 select:focus-visible,
 [tabindex]:focus-visible {
-  outline: 3px solid var(--focus);
+  outline: 3px solid var(--blue);
   outline-offset: 3px;
 }
 .icon {
@@ -151,15 +152,22 @@ select:focus-visible,
 .panel,
 .metric-card {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 10px;
   background: var(--surface);
   min-width: 0;
 }
 .panel-heading,
-.section-heading {
+.section-heading,
+.metric-top,
+.drawer-header,
+.chat-goal-toggle,
+.chat-goal-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+.panel-heading,
+.section-heading {
   gap: 12px;
 }
 .panel-heading {
@@ -215,16 +223,22 @@ select:focus-visible,
 }
 .run.legend-dot,
 .run.sport-dot,
-.status-dot {
+.status-dot,
+.bar-part.run,
+.mini-dot.run {
   background: var(--teal);
 }
 .cycle.legend-dot,
 .cycle.sport-dot,
-.warn .status-dot {
+.warn .status-dot,
+.bar-part.cycle,
+.mini-dot.cycle {
   background: var(--amber);
 }
 .other.legend-dot,
-.other.sport-dot {
+.other.sport-dot,
+.bar-part.other,
+.mini-dot.other {
   background: var(--other);
 }
 .legend-planned {

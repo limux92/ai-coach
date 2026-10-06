@@ -12,7 +12,8 @@ from google.cloud.firestore_v1.base_query import FieldFilter
 
 COLLECTIONS = {"workouts", "planned_workouts", "wellness", "observations", "sync_state", "sync_runs", "athletes", "schema", "training_summaries", "summary_jobs", "credentials"}
 COLLECTIONS |= {"physiology_revisions", "physiology_jobs", "physiology_efforts", "physiology_models",
-                "physiology_analyses", "physiology_contexts", "upstream_budgets", "activity_discovery", "users"}
+                "physiology_analyses", "physiology_contexts", "upstream_budgets", "activity_discovery", "users",
+                "chat_messages", "token_usage", "athlete_goals"}
 GLOBAL_COLLECTIONS = frozenset({"schema", "upstream_budgets", "users"})
 TENANT_COLLECTIONS = frozenset(COLLECTIONS - GLOBAL_COLLECTIONS)
 
@@ -86,6 +87,34 @@ class Store:
             self.ref(collection, doc_id).create(data)
         except AlreadyExists:
             pass
+
+    def list_chat_messages(self, limit: int = 20) -> list[dict[str, Any]]:
+        """Retrieve recent chat messages in chronological order."""
+        query = (self._collection_ref("chat_messages")
+                 .order_by("created_at", direction=firestore.Query.DESCENDING)
+                 .limit(limit))
+        messages = [dict(s.to_dict(), id=s.id) for s in query.stream()]
+        messages.reverse()
+        return messages
+
+    def save_chat_message(self, message_id: str, data: dict[str, Any]) -> None:
+        self.put("chat_messages", message_id, data, merge=False)
+
+    def record_token_usage(self, usage_id: str, data: dict[str, Any]) -> None:
+        self.put("token_usage", usage_id, data, merge=False)
+
+    def get_athlete_goal(self) -> dict[str, Any]:
+        doc = self.get("athlete_goals", "current")
+        return doc or {"goal": "", "word_count": 0, "updated_at": None}
+
+    def save_athlete_goal(self, goal: str, word_count: int) -> dict[str, Any]:
+        data = {
+            "goal": goal.strip(),
+            "word_count": word_count,
+            "updated_at": utcnow().isoformat(),
+        }
+        self.put("athlete_goals", "current", data, merge=True)
+        return data
 
     def reserve_upstream_request(self, pool):
         from .upstream_budget import reserve_state

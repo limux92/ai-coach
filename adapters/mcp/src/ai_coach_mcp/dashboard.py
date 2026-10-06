@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse, RedirectResponse
+from starlette.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from starlette.routing import Mount, Route
 
 from .backend import BackendError
@@ -297,6 +297,50 @@ def dashboard_routes(settings, backend, verifier, static_dir=None):
         except BackendError as exc:
             return JSONResponse({"error": str(exc)}, status_code=exc.status_code)
 
+    @bounded
+    async def get_goal(request):
+        user_id = request.scope.get("user_id")
+        try:
+            data = await backend.get("/v1/user/goal", {}, user_id=user_id)
+            return JSONResponse(data)
+        except BackendError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=exc.status_code)
+
+    @bounded
+    async def save_goal(request):
+        user_id = request.scope.get("user_id")
+        try:
+            body = await request.json()
+        except Exception:
+            raise ValueError("Invalid JSON payload")
+        try:
+            data = await backend.post("/v1/user/goal", body, user_id=user_id)
+            return JSONResponse(data)
+        except BackendError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=exc.status_code)
+
+    @bounded
+    async def chat_history(request):
+        user_id = request.scope.get("user_id")
+        try:
+            data = await backend.get("/v1/chat/history", {}, user_id=user_id)
+            return JSONResponse(data)
+        except BackendError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=exc.status_code)
+
+    @bounded
+    async def chat_stream(request):
+        user_id = request.scope.get("user_id")
+        try:
+            body = await request.json()
+        except Exception:
+            raise ValueError("Invalid JSON payload")
+        try:
+            stream = await backend.stream_post("/v1/chat/stream", body, user_id=user_id)
+            return StreamingResponse(stream, media_type="text/event-stream")
+        except BackendError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=exc.status_code)
+
     async def shell(request):
         relative = request.path_params.get("path", "")
         parts = relative.split("/")
@@ -325,6 +369,10 @@ def dashboard_routes(settings, backend, verifier, static_dir=None):
         Route("/user/intervals-credentials", get_intervals_credentials, methods=["GET"]),
         Route("/user/intervals-credentials", save_intervals_credentials, methods=["POST"]),
         Route("/user/sync", user_sync, methods=["POST"]),
+        Route("/user/goal", get_goal, methods=["GET"]),
+        Route("/user/goal", save_goal, methods=["POST"]),
+        Route("/chat/history", chat_history, methods=["GET"]),
+        Route("/chat/stream", chat_stream, methods=["POST"]),
         Route("/billing/checkout", checkout, methods=["POST"]),
         Route("/billing/portal", portal, methods=["POST"]),
         Route("/billing/vipps/activate", vipps_activate, methods=["POST"])])

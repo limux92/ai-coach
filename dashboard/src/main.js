@@ -1,7 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import {
-  getAuth,
-  setPersistence,
+  initializeAuth,
+  browserPopupRedirectResolver,
   browserSessionPersistence,
   signInWithPopup,
   GoogleAuthProvider,
@@ -179,9 +179,10 @@ async function boot() {
     state.week = monday(state.today);
 
     const app = initializeApp(config);
-    auth = getAuth(app);
-
-    await setPersistence(auth, browserSessionPersistence);
+    auth = initializeAuth(app, {
+      persistence: browserSessionPersistence,
+      popupRedirectResolver: browserPopupRedirectResolver,
+    });
     if (location.pathname === '/dashboard/connect') {
       return await connectChat(root, auth);
     }
@@ -240,6 +241,7 @@ async function boot() {
 }
 
 bindEvents(state, drawerRoot, {
+  api,
   signIn,
   checkout,
   openPortal,

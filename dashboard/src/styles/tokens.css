@@ -8,7 +8,6 @@
   --muted: #a5b1bf;
   --line: #39434f;
   --blue: #78b9ff;
-  --focus: #78b9ff;
   --teal: #79d5b0;
   --amber: #e8bb72;
   --other: #b9b1ed;
@@ -16,18 +15,12 @@
   --run-bg: #193c33;
   --cycle-bg: #3b3020;
   --other-bg: #302d43;
-  --radius: 10px;
-  --shadow: none;
   font-family:
     system-ui,
     -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
     sans-serif;
   color-scheme: dark;
   font-size: 14px;
   font-synthesis: none;
   line-height: 1.5;
-  color: var(--ink);
-  background: var(--bg);
 }

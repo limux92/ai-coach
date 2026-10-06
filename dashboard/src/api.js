@@ -37,6 +37,7 @@ export function createApi(getAuthInstance) {
       error.auth = response.status === 401;
       throw error;
     }
+    if (options.stream) return response;
     return response.json();
   }
 
