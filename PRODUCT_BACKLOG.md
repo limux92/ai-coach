@@ -47,7 +47,7 @@ flowchart TD
 
 | ID | Story / Feature | Priority | Status | Description & Acceptance Criteria |
 | :--- | :--- | :--- | :--- | :--- |
-| **CHAT-01** | **Dashboard In-App Chat Drawer** | **P0** | **Backlog** | Embed a native, responsive chat interface inside `https://aiworkoutbuilder.app/dashboard/` connected to `ai-coach-chat` backend, allowing direct dialogue with the coach. |
+| **CHAT-01** | **Dashboard In-App Chat Drawer** | **P0** | **In Planning ([Spec](docs/stories/STORY_CHAT_DRAWER.md))** | Embed a native, responsive chat interface inside `https://aiworkoutbuilder.app/dashboard/` connected to `ai-coach-chat` backend, allowing direct dialogue with the coach. Includes 100-word goal editor and SSE streaming. |
 | **CHAT-02** | **Daily Morning Briefing & Readiness Check** | **P1** | **Backlog** | Coach proactively synthesizes overnight sleep/HRV, yesterday's training stress, and current TSB/form to deliver a 3-sentence daily readiness recommendation. |
 | **CHAT-03** | **Post-Workout Debrief & Analysis** | **P1** | **Backlog** | Athlete can select a completed workout and ask "How did I execute this session?", receiving feedback grounded in TiZ, pacing, and $W'$ depletion. |
 | **CHAT-04** | **Conversational Long-Term Goal Setting** | **P2** | **Backlog** | Coach interviews the athlete on upcoming target events (e.g. Birkebeineren, marathon, gran fondo) and establishes a multi-week macrocycle periodization target. |
