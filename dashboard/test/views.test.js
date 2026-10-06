@@ -200,6 +200,32 @@ test('overview view extracts CP and W prime from workout analysis when physiolog
   assert.match(html, /W' <strong>24\.0 kJ<\/strong>/);
 });
 
+test('overview view extracts CP and W prime from athlete profile in context when physiology model is null', () => {
+  const f = fixture();
+  f.workouts = [];
+  f.context = {
+    athlete: {
+      ftp_w: 275,
+      model_cp_w: 282,
+      model_w_prime_j: 19000,
+    },
+  };
+  const html = shell(f, config);
+  assert.match(html, /CP <strong>282 W<\/strong>/);
+  assert.match(html, /W' <strong>19\.0 kJ<\/strong>/);
+});
+
+test('overview view renders unconfigured panel when no CP, athlete profile, or cycling power data exist', () => {
+  const f = fixture();
+  f.workouts = [];
+  f.context = null;
+  const html = shell(f, config);
+  assert.match(html, /cp-panel empty/);
+  assert.match(html, /Unconfigured/);
+  assert.match(html, /No Critical Power or FTP configured/);
+  assert.doesNotMatch(html, /CP <strong>250 W<\/strong>/);
+});
+
 test('pmcSeries warms up CTL and ATL when historical workouts precede the chart window', async () => {
   const { pmcSeries } = await import('../src/data.js');
   // 30 daily workouts of load 60 from 2026-06-01 to 2026-06-30

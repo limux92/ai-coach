@@ -2,9 +2,10 @@ import json
 import unittest
 
 from ai_coach.normalize import (NormalizationError, is_direct_garmin, normalize_activity,
-                       normalize_calendar_event, normalize_planned_workout,
-                       normalize_wellness, source_hash, is_garmin_upload_candidate,
-                       is_verified_garmin_fit)
+                       normalize_athlete_profile, normalize_calendar_event,
+                       normalize_planned_workout, normalize_wellness, source_hash,
+                       is_garmin_upload_candidate, is_verified_garmin_fit)
+
 
 
 def garmin_fit_metadata():
@@ -137,6 +138,46 @@ class NormalizationTests(unittest.TestCase):
         self.assertEqual(source_hash({"x": 1, "y": 2}), source_hash({"y": 2, "x": 1}))
         with self.assertRaises(NormalizationError):
             source_hash({"invalid": float("nan")})
+
+    def test_normalize_athlete_profile_maps_thresholds_zones_and_metrics(self):
+        raw = {
+            "id": "i9999",
+            "name": "Magne Lima",
+            "timezone": "Europe/Oslo",
+            "icu_ftp": 285,
+            "icu_pm_cp": 280,
+            "icu_pm_w_prime": 19500,
+            "icu_weight": 73.5,
+            "icu_resting_hr": 48,
+            "icu_max_hr": 192,
+            "icu_lthr": 171,
+            "icu_power_zones": [150, 200, 250, 300, 350],
+            "icu_hr_zones": [120, 140, 160, 180],
+        }
+        doc = normalize_athlete_profile(raw, athlete_id="i9999", default_timezone="Europe/Oslo")
+        self.assertEqual(doc["id"], "intervals_i9999")
+        self.assertEqual(doc["source_id"], "i9999")
+        self.assertEqual(doc["name"], "Magne Lima")
+        self.assertEqual(doc["timezone"], "Europe/Oslo")
+        self.assertEqual(doc["ftp_w"], 285)
+        self.assertEqual(doc["model_cp_w"], 280)
+        self.assertEqual(doc["model_w_prime_j"], 19500)
+        self.assertEqual(doc["weight_kg"], 73.5)
+        self.assertEqual(doc["resting_hr_bpm"], 48)
+        self.assertEqual(doc["max_hr_bpm"], 192)
+        self.assertEqual(doc["lthr_bpm"], 171)
+        self.assertEqual(doc["power_zones"], [150, 200, 250, 300, 350])
+        self.assertEqual(doc["hr_zones"], [120, 140, 160, 180])
+        self.assertIsNotNone(doc["last_verified_at"])
+
+    def test_normalize_athlete_profile_handles_missing_fields_gracefully(self):
+        doc = normalize_athlete_profile({"id": "i123"}, athlete_id="i123", default_timezone="Europe/Oslo")
+        self.assertEqual(doc["id"], "intervals_i123")
+        self.assertEqual(doc["source_id"], "i123")
+        self.assertIsNone(doc["ftp_w"])
+        self.assertIsNone(doc["model_cp_w"])
+        self.assertEqual(doc["timezone"], "Europe/Oslo")
+
 
 
 if __name__ == "__main__":

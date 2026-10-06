@@ -34,7 +34,7 @@ flowchart TD
 
 | ID | Story / Feature | Priority | Status | Description & Acceptance Criteria |
 | :--- | :--- | :--- | :--- | :--- |
-| **PHY-01** | **Critical Power & $W'$ Curve Field Verification** | **P0** | **Ready for Test** | Verify that CP & $W'$ pickup reliably from Intervals.icu profile / workout MMP history rather than falling back to default 250W. Support 2-parameter Monod/Scherrer hyperbolic regression over 2m–15m power bests. |
+| **PHY-01** | **Critical Power & $W'$ Curve Field Verification** | **P0** | **Completed (Verified)** | Verify that CP & $W'$ pickup reliably from Intervals.icu profile / workout MMP history rather than falling back to default 250W. Support 2-parameter Monod/Scherrer hyperbolic regression over 2m–15m power bests. |
 | **PHY-02** | **Durability Profiling (Fatigue Resistance)** | **P1** | **Backlog** | Calculate power duration degradation after 1,000 kJ, 1,500 kJ, and 2,500 kJ of accumulated mechanical work (Maunder et al. 2021, Mateo-March et al. 2024). Display fresh vs. fatigued curves. |
 | **PHY-03** | **Dynamic $W'$ Balance & Match Burning** | **P1** | **Backlog** | Render Skiba (2015) differential anaerobic battery expenditure and reconstitution in workout detail views. Flag match-burning surges above CP. |
 | **PHY-04** | **Aerobic Decoupling & Cardiac Drift** | **P2** | **Backlog** | Calculate internal vs. external load decoupling ($Pw:HR$ for cycling, $Pace:HR$ for running) across steady-state Z2 efforts to detect acute fatigue and cardiovascular drift. |

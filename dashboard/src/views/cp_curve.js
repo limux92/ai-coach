@@ -30,6 +30,16 @@ export function cpCurvePanel(state) {
   const mmpMap = new Map(mmp.map((item) => [item.duration, item.power]));
 
   if (cp === null) {
+    const athlete = state?.context?.athlete;
+    if (isNumber(athlete?.model_cp_w)) {
+      cp = Math.round(athlete.model_cp_w);
+      if (isNumber(athlete?.model_w_prime_j)) wPrime = Math.round(athlete.model_w_prime_j);
+    } else if (isNumber(athlete?.ftp_w)) {
+      cp = Math.round(athlete.ftp_w);
+    }
+  }
+
+  if (cp === null) {
     for (const r of cyclingRows) {
       const a = r.analysis;
       if (isNumber(a?.model_cp_w)) {
@@ -71,9 +81,34 @@ export function cpCurvePanel(state) {
         wPrime = 20000;
       }
     }
-    if (cp === null) cp = 250;
-    if (wPrime === null) wPrime = 20000;
   }
+
+  if (cp === null) {
+    return /* HTML */ `<section class="panel cp-panel empty">
+      <div class="panel-heading">
+        <div>
+          <h2>Critical Power & MMP Profile</h2>
+          <p>Mean Maximal Power (1s – 60m) · Theoretical CP / W' Hyperbolic Overlay</p>
+        </div>
+        <div class="cp-badges">
+          <span class="cp-pill unconfigured" title="No Critical Power configured"
+            >Unconfigured</span
+          >
+        </div>
+      </div>
+      <div class="cp-empty-notice">
+        <p>
+          No Critical Power or FTP configured in athlete profile, and insufficient cycling power
+          data to estimate a power-duration curve.
+        </p>
+        <p class="muted">
+          Sync your profile from Intervals.icu or upload cycling activities with power data.
+        </p>
+      </div>
+    </section>`;
+  }
+
+  if (wPrime === null) wPrime = 20000;
 
   const width = 640;
   const height = 220;

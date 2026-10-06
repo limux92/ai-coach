@@ -16,9 +16,10 @@ from .summary_service import save_workout, refresh_summaries, list_all
 from .intervals_client import IntervalsClient, IntervalsError
 from .normalize import (
     SCHEMA_VERSION, is_direct_garmin, fit_upload_manufacturer, is_verified_activity_fit,
-    normalize_activity, normalize_planned_workout,
+    normalize_activity, normalize_athlete_profile, normalize_planned_workout,
     normalize_wellness, source_document_id, source_hash,
 )
+
 
 logger = logging.getLogger("ai_coach")
 RUN_BUDGET_SECONDS = 240
@@ -119,10 +120,14 @@ class _Importer:
         previous_id = self.state.get("source_athlete_id")
         if previous_id is not None and previous_id != self.athlete_id:
             raise IntervalsError("athlete_changed")
-        self.store.put("athletes", document_id, {
-            "id": document_id, "source": "intervals.icu", "source_id": self.athlete_id,
-            "timezone": self.settings.timezone, "last_verified_at": now(),
-        })
+        doc = normalize_athlete_profile(
+            profile,
+            athlete_id=self.athlete_id,
+            default_timezone=self.settings.timezone,
+            fetched_at=now(),
+        )
+        self.store.put("athletes", document_id, doc)
+
 
     def activity(self, summary):
         self.check_budget()

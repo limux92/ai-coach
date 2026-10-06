@@ -329,3 +329,48 @@ def normalize_wellness(
         "resting_heart_rate_is_temporary": payload.get("tempRestingHR") is True,
     })
     return doc
+
+
+def normalize_athlete_profile(
+    payload: Mapping[str, Any],
+    *,
+    athlete_id: str,
+    default_timezone: str = "Europe/Oslo",
+    fetched_at: datetime | str | None = None,
+) -> dict[str, Any]:
+    """Normalize athlete profile parameters from Intervals.icu."""
+    now_iso = _utc(fetched_at or datetime.now(UTC))
+    doc_id = source_document_id(athlete_id)
+
+    def _first_number(*keys: str) -> int | float | None:
+        for k in keys:
+            val = _number(payload.get(k))
+            if val is not None:
+                return val
+        return None
+
+    power_zones = payload.get("icu_power_zones") or payload.get("power_zones")
+    hr_zones = payload.get("icu_hr_zones") or payload.get("hr_zones")
+    if not isinstance(power_zones, list):
+        power_zones = None
+    if not isinstance(hr_zones, list):
+        hr_zones = None
+
+    return {
+        "id": doc_id,
+        "source": "intervals.icu",
+        "source_id": str(athlete_id),
+        "name": _text(payload.get("name")),
+        "timezone": _text(payload.get("timezone")) or default_timezone,
+        "ftp_w": _first_number("icu_ftp", "ftp", "cycling_ftp"),
+        "model_cp_w": _first_number("icu_pm_cp", "cp"),
+        "model_w_prime_j": _first_number("icu_pm_w_prime", "w_prime"),
+        "weight_kg": _first_number("icu_weight", "weight"),
+        "resting_hr_bpm": _first_number("icu_resting_hr", "resting_hr"),
+        "max_hr_bpm": _first_number("icu_max_hr", "max_hr"),
+        "lthr_bpm": _first_number("icu_lthr", "lthr"),
+        "power_zones": power_zones,
+        "hr_zones": hr_zones,
+        "last_verified_at": now_iso,
+    }
+

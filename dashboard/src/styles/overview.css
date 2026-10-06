@@ -397,6 +397,19 @@
 .cp-pill.w-prime {
   border-color: var(--amber);
 }
+.cp-pill.unconfigured {
+  border-style: dashed;
+}
+.cp-empty-notice {
+  padding: 20px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.cp-empty-notice p + p {
+  margin-top: 6px;
+  font-size: 0.78rem;
+  opacity: 0.8;
+}
 .pmc-pill.ctl {
   border-color: var(--blue);
 }
