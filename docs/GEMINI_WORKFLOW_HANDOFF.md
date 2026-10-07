@@ -34,6 +34,11 @@ Outcomes completed & verified:
    - Root cause context error: `build_context` in `coach_context.py` crashed when `sync_status["source_connection"]` was a string rather than a dictionary. Fixed with defensive type check.
    - Offline test isolation: `get_vertex_access_token` checks `PYTEST_CURRENT_TEST` to ensure offline unit tests remain deterministic and fast, and `assemble_system_instruction` provides clean fallback settings.
    - Verified quality gates: 654 backend tests, 205 adapter tests, 29 dashboard node tests passing.
+   - Cloud Release & Verification:
+     * Commit: `c64a76002eac77b11746fc6f81b2eba1cb6a8b51` on `release/lightweight-dark-dashboard` (PR #4, 4/4 CI checks passed).
+     * Deployment receipt: `.local/deployments/261007-062536-cac3/summary.json`.
+     * Deployed revisions at 100% traffic: `ai-coach-sync-r-c64a7600-261007-062536-cac3` and `ai-coach-chat-r-c64a7600-261007-062536-cac3`.
+     * Public dashboard verified live at `https://aiworkoutbuilder.app/dashboard/` (HTTP 200).
 
 ## 5 October continuation
 
