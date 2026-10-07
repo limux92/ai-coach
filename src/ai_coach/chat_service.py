@@ -23,9 +23,23 @@ DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 
 def get_vertex_access_token() -> str | None:
     """Obtain a Google Cloud OAuth access token via dev env, ADC, or metadata server."""
+    if os.environ.get("PYTEST_CURRENT_TEST") and not os.environ.get("GOOGLE_ACCESS_TOKEN"):
+        return None
+
     dev_token = os.environ.get("GOOGLE_ACCESS_TOKEN")
     if dev_token:
         return dev_token
+
+    try:
+        with httpx.Client(timeout=1.5) as client:
+            resp = client.get(
+                "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
+                headers={"Metadata-Flavor": "Google"},
+            )
+            if resp.status_code == 200:
+                return resp.json().get("access_token")
+    except Exception:
+        pass
 
     try:
         import google.auth
@@ -40,13 +54,17 @@ def get_vertex_access_token() -> str | None:
         pass
 
     try:
-        with httpx.Client(timeout=1.5) as client:
-            resp = client.get(
-                "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
-                headers={"Metadata-Flavor": "Google"},
+        import subprocess
+        gcloud_bin = Path(__file__).resolve().parents[2] / "scripts" / "gcloud"
+        if gcloud_bin.is_file():
+            proc = subprocess.run(
+                [str(gcloud_bin), "auth", "print-access-token"],
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
-            if resp.status_code == 200:
-                return resp.json().get("access_token")
+            if proc.returncode == 0 and proc.stdout.strip():
+                return proc.stdout.strip()
     except Exception:
         pass
 
@@ -96,9 +114,22 @@ def assemble_system_instruction(store: Store, user_id: str | None = None) -> str
     try:
         settings_obj = getattr(store, "settings", None)
         if settings_obj is None:
-            from .config import Settings
+            try:
+                from .main import settings as get_main_settings
 
-            settings_obj = Settings()
+                settings_obj = get_main_settings()
+            except Exception:
+                try:
+                    from .config import Settings
+
+                    settings_obj = Settings.from_env()
+                except Exception:
+                    from .config import Settings
+
+                    settings_obj = Settings(
+                        project=os.environ.get("GCP_PROJECT_ID", "magne-ai-coach-20260915"),
+                        bucket=os.environ.get("GCS_BUCKET", "magne-ai-coach-20260915-data"),
+                    )
         sync_status = {}
         try:
             from .main import status
@@ -189,7 +220,7 @@ async def call_gemini_stream(
     completion_tokens = 0
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0)) as client:
-        async with client.stream("POST", url, json=payload, headers={"Content-Type": "application/json"}) as response:
+        async with client.stream("POST", url, json=payload, headers=headers) as response:
             if response.status_code != 200:
                 error_body = await response.aread()
                 logger.error(f"Gemini API returned status {response.status_code}: {error_body.decode(errors='replace')}")

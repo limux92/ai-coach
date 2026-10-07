@@ -337,9 +337,14 @@ def build_context(store, settings, *, days, upcoming, sync_status):
     from .physiology_context import read_context
     result["physiology"] = read_context(store, settings, now)
     athlete_doc = None
-    source_athlete_id = (sync_status.get("source_connection") or {}).get("source_athlete_id") or (
-        (store.get("sync_state", "intervals") or {}).get("source_athlete_id")
-    )
+    source_conn = sync_status.get("source_connection")
+    source_athlete_id = source_conn.get("source_athlete_id") if isinstance(source_conn, dict) else None
+    if not source_athlete_id:
+        source_athlete_id = (
+            sync_status.get("source_athlete_id")
+            or sync_status.get("athlete_id")
+            or (store.get("sync_state", "intervals") or {}).get("source_athlete_id")
+        )
     if source_athlete_id:
         from .normalize import source_document_id
         try:

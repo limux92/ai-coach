@@ -29,6 +29,11 @@ Outcomes completed & verified:
    - Complete frontend localization: converted all dashboard views (`chat.js`, `login.js`, `recent.js`, `shell.js`, `main.js`) entirely to English (terms modal, registration, pending payment, workout fallbacks, coach drawer).
    - Gemini look & feel: stylized FAB with Gemini blue accent and ✦ star icon, chat drawer header with pill badge (`Gemini 2.5 Flash`) reflecting active model version, and blue message accent.
    - Quality gates: 654 backend tests, 205 adapter tests, 29 dashboard node tests passing. Gzip budgets verified: JS gzip 48.61 KB <= 50.00 KB; CSS gzip 5.997 KB <= 6.00 KB; largest source file 11.88 KB <= 12.00 KB.
+4. Live Chat Streaming Authorization & Context Resolution Fix:
+   - Root cause HTTP 401: `call_gemini_stream` in `chat_service.py` generated the OAuth token properly but dropped `Authorization` in the `httpx.stream` call by overriding `headers={"Content-Type": "application/json"}` instead of passing the prepared headers. Fixed to `headers=headers`.
+   - Root cause context error: `build_context` in `coach_context.py` crashed when `sync_status["source_connection"]` was a string rather than a dictionary. Fixed with defensive type check.
+   - Offline test isolation: `get_vertex_access_token` checks `PYTEST_CURRENT_TEST` to ensure offline unit tests remain deterministic and fast, and `assemble_system_instruction` provides clean fallback settings.
+   - Verified quality gates: 654 backend tests, 205 adapter tests, 29 dashboard node tests passing.
 
 ## 5 October continuation
 
