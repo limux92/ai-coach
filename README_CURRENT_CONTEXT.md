@@ -1,9 +1,9 @@
 # AI Coach — Current Context & Operational Baseline
 
-**Last Updated:** 6 October 2026  
-**Active Branch:** `release/lightweight-dark-dashboard` (HEAD `6550f53`)  
-**Production Release:** `e842c9feb212039221fd8d0ddaeddcffeaa91b0b` (`release/lightweight-dark-dashboard`), serving revisions at 100% traffic.  
-**Active Cloud Run Revisions:** `ai-coach-sync-r-e842c9fe-261005-124238-4d78`, `ai-coach-chat-r-e842c9fe-261005-124238-4d78`  
+**Last Updated:** 7 October 2026<br>
+**Active Branch:** `release/lightweight-dark-dashboard` (HEAD `d39a8c0`)<br>
+**Production Release:** `d39a8c0cc2c2e768286abdb755e292bcdebd2708` (`release/lightweight-dark-dashboard`), serving revisions at 100% traffic.<br>
+**Active Cloud Run Revisions:** `ai-coach-sync-r-d39a8c0c-261006-223737-20ce`, `ai-coach-chat-r-d39a8c0c-261006-223737-20ce`<br>
 **Live Production URL:** [https://aiworkoutbuilder.app/dashboard/](https://aiworkoutbuilder.app/dashboard/)
 
 ---

@@ -28,7 +28,7 @@ export function recentTable(rows, allRows = []) {
       </p>
     </div>`;
   return /* HTML */ `<div class="table-scroll">
-    ${isFallback ? /* HTML */ `<p class="chart-coverage" style="margin: 0 0 8px 4px;">Ingen økter denne måneden. Viser de siste gjennomførte øktene:</p>` : ''}
+    ${isFallback ? /* HTML */ `<p class="chart-coverage" style="margin: 0 0 8px 4px;">No workouts this month. Showing recent completed workouts:</p>` : ''}
     <table class="workout-table">
       <thead>
         <tr>

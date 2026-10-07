@@ -18,7 +18,39 @@ logger = logging.getLogger("ai_coach.chat")
 
 MAX_GOAL_WORDS = 100
 MAX_MESSAGE_LENGTH = 4000
-DEFAULT_GEMINI_MODEL = "gemini-1.5-pro"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+
+
+def get_vertex_access_token() -> str | None:
+    """Obtain a Google Cloud OAuth access token via dev env, ADC, or metadata server."""
+    dev_token = os.environ.get("GOOGLE_ACCESS_TOKEN")
+    if dev_token:
+        return dev_token
+
+    try:
+        import google.auth
+        from google.auth.transport.requests import Request
+
+        creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        if not creds.valid:
+            creds.refresh(Request())
+        if creds.token:
+            return creds.token
+    except Exception:
+        pass
+
+    try:
+        with httpx.Client(timeout=1.5) as client:
+            resp = client.get(
+                "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
+                headers={"Metadata-Flavor": "Google"},
+            )
+            if resp.status_code == 200:
+                return resp.json().get("access_token")
+    except Exception:
+        pass
+
+    return None
 
 
 def count_words(text: str) -> int:
@@ -56,7 +88,7 @@ def load_system_prompt() -> str:
 
 
 def assemble_system_instruction(store: Store, user_id: str | None = None) -> str:
-    """Assemble system prompt with athlete goal and pre-injected physiological context."""
+    """Assemble system prompt with athlete goal, English directive, and pre-injected physiological context."""
     base_prompt = load_system_prompt()
     goal_doc = store.get_athlete_goal()
     athlete_goal = goal_doc.get("goal", "").strip() if goal_doc else ""
@@ -65,10 +97,12 @@ def assemble_system_instruction(store: Store, user_id: str | None = None) -> str
         settings_obj = getattr(store, "settings", None)
         if settings_obj is None:
             from .config import Settings
+
             settings_obj = Settings()
         sync_status = {}
         try:
             from .main import status
+
             sync_status = status()
         except Exception:
             sync_status = {}
@@ -80,7 +114,11 @@ def assemble_system_instruction(store: Store, user_id: str | None = None) -> str
 
     sections = [
         base_prompt,
-        "\n\n## Current Athlete Coaching Focus & Goals (Max 100 words):\n" + (athlete_goal or "No active goal specified yet."),
+        "\n\n## Communication Style & Language Requirements:\n"
+        "Always communicate with the athlete in natural, encouraging, and clear English unless explicitly instructed otherwise by the athlete. "
+        "Keep recommendations practical and grounded in the athlete's physiological data.",
+        "\n\n## Current Athlete Coaching Focus & Goals (Max 100 words):\n"
+        + (athlete_goal or "No active goal specified yet."),
         "\n\n## Pre-Injected Athlete Physiological Context (/v1/context):\n" + context_json,
     ]
     return "".join(sections)
@@ -92,9 +130,13 @@ async def call_gemini_stream(
     system_instruction: str,
     history: list[dict[str, Any]],
     message: str,
+    project_id: str | None = None,
+    vertex_location: str = "europe-west1",
 ) -> AsyncGenerator[tuple[str, dict[str, int] | None], None]:
-    """Call Google Gemini streaming endpoint or generate a simulated stream if no API key is provided."""
-    if not api_key:
+    """Call Google Gemini streaming endpoint via Vertex AI or Google AI Studio, falling back to mock stream if unauthenticated."""
+    access_token = get_vertex_access_token() if not api_key else None
+
+    if not api_key and not access_token:
         # Graceful development / offline mock stream
         mock_chunks = [
             "Hello! I am your AI Endurance Coach. ",
@@ -107,8 +149,6 @@ async def call_gemini_stream(
         yield "", {"prompt_tokens": 120, "completion_tokens": 45}
         return
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={api_key}"
-
     # Build contents array
     contents = []
     for msg in history:
@@ -118,14 +158,32 @@ async def call_gemini_stream(
             contents.append({"role": role, "parts": [{"text": content_text}]})
     contents.append({"role": "user", "parts": [{"text": message}]})
 
-    payload = {
-        "system_instruction": {"parts": [{"text": system_instruction}]},
-        "contents": contents,
-        "generationConfig": {
-            "temperature": 0.4,
-            "maxOutputTokens": 2048,
-        },
-    }
+    clean_model = model.replace("models/", "")
+    headers = {"Content-Type": "application/json"}
+
+    if access_token:
+        proj = project_id or os.environ.get("GCP_PROJECT_ID", "magne-ai-coach-20260915")
+        loc = vertex_location or "europe-west1"
+        url = f"https://{loc}-aiplatform.googleapis.com/v1/projects/{proj}/locations/{loc}/publishers/google/models/{clean_model}:streamGenerateContent?alt=sse"
+        headers["Authorization"] = f"Bearer {access_token}"
+        payload = {
+            "systemInstruction": {"parts": [{"text": system_instruction}]},
+            "contents": contents,
+            "generationConfig": {
+                "temperature": 0.4,
+                "maxOutputTokens": 2048,
+            },
+        }
+    else:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:streamGenerateContent?alt=sse&key={api_key}"
+        payload = {
+            "system_instruction": {"parts": [{"text": system_instruction}]},
+            "contents": contents,
+            "generationConfig": {
+                "temperature": 0.4,
+                "maxOutputTokens": 2048,
+            },
+        }
 
     prompt_tokens = 0
     completion_tokens = 0

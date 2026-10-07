@@ -348,6 +348,11 @@ def get_chat_history(limit: Annotated[int, Query(ge=1, le=50)] = 20):
     return current_store.list_chat_messages(limit=limit)
 
 
+@app.get("/v1/chat/model")
+def get_chat_model():
+    return {"model": settings().gemini_model or DEFAULT_GEMINI_MODEL}
+
+
 @app.post("/v1/chat/stream")
 async def chat_stream(body: ChatStreamRequest):
     user_id = _current_user_id.get()
@@ -372,12 +377,23 @@ async def chat_stream(body: ChatStreamRequest):
     system_instruction = assemble_system_instruction(current_store, user_id=user_id)
     api_key = settings().gemini_api_key
     model = settings().gemini_model or DEFAULT_GEMINI_MODEL
+    project_id = settings().project
+    vertex_location = settings().vertex_location
 
     async def event_generator():
         collected_chunks = []
         final_usage = {"prompt_tokens": 0, "completion_tokens": 0}
         try:
-            async for chunk, usage in call_gemini_stream(api_key, model, system_instruction, history, body.message):
+            yield f"data: {json.dumps({'model': model})}\n\n"
+            async for chunk, usage in call_gemini_stream(
+                api_key,
+                model,
+                system_instruction,
+                history,
+                body.message,
+                project_id=project_id,
+                vertex_location=vertex_location,
+            ):
                 if chunk:
                     collected_chunks.append(chunk)
                     yield f"data: {json.dumps({'chunk': chunk})}\n\n"

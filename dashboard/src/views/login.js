@@ -2,7 +2,7 @@ import { icon } from '../ui.js';
 import { escapeHTML as esc } from '../data.js';
 
 function termsModalHTML() {
-  return '<div id="terms-box" class="terms-box hidden"><h4>Vilkår</h4><p>199 kr/mnd. Avtalegiro/Vipps uten bindingstid.</p></div>';
+  return '<div id="terms-box" class="terms-box hidden"><h4>Terms</h4><p>199 NOK/mo. Direct debit / Vipps with no lock-in period.</p></div>';
 }
 
 export function loginScreen(message = '', mode = 'signin') {
@@ -39,9 +39,9 @@ export function loginScreen(message = '', mode = 'signin') {
             isRegister
               ? /* HTML */ `
                   <p class="terms-note">
-                    Ved registrering godtar du våre
+                    By registering you accept our
                     <button type="button" class="terms-link" data-action="toggle-terms">
-                      salgsbetingelser</button
+                      terms and conditions</button
                     >.
                   </p>
                   ${termsModalHTML()}
@@ -67,23 +67,23 @@ export function pendingPaymentScreen(user) {
           </p>
           <div class="onboarding-box">
             <span class="status-badge warning">Payment Required</span>
-            <p>Fullfør abonnementet for å aktivere automatisk synkronisering og AI-trener.</p>
+            <p>Complete your subscription to activate automated syncing and AI Coach.</p>
             <div class="terms-section">
               <label class="terms-label">
                 <input type="checkbox" id="terms-checkbox" checked />
                 <span
-                  >Jeg godtar
+                  >I accept the
                   <button type="button" class="terms-link" data-action="toggle-terms">
-                    salgsbetingelsene
+                    terms and conditions
                   </button>
-                  (199 kr/mnd, ingen bindingstid)</span
+                  (199 NOK/mo, no lock-in)</span
                 >
               </label>
               ${termsModalHTML()}
               <p id="terms-error" class="login-error" style="display:none;"></p>
             </div>
             <button class="button primary checkout-button" data-action="checkout">
-              Betal med Vipps ${icon('arrow')}
+              Pay with Vipps ${icon('arrow')}
             </button>
           </div>
           <button class="button secondary" data-action="logout" style="margin-top: 20px;">

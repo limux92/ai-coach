@@ -124,7 +124,7 @@ async function checkout() {
   if (termsCheckbox && !termsCheckbox.checked) {
     const errorEl = document.getElementById('terms-error');
     if (errorEl) {
-      errorEl.textContent = 'Vennligst godta salgsbetingelsene før du fortsetter.';
+      errorEl.textContent = 'Please accept the sales terms before continuing.';
       errorEl.style.display = 'block';
     }
     return;
@@ -132,17 +132,17 @@ async function checkout() {
   const button = document.querySelector('[data-action="checkout"]');
   if (button) {
     button.disabled = true;
-    button.textContent = 'Videresender til betaling...';
+    button.textContent = 'Redirecting to checkout...';
   }
   try {
     const res = await api('/billing/checkout', null, { method: 'POST' });
     if (res?.checkout_url) {
       window.location.href = res.checkout_url;
     } else {
-      loginScreen('Betalingsøkt kunne ikke opprettes. Vennligst prøv igjen.');
+      loginScreen('Payment session could not be created. Please try again.');
     }
   } catch (err) {
-    loginScreen(err?.message || 'Kunne ikke koble til betalingstjenesten. Vennligst prøv igjen.');
+    loginScreen(err?.message || 'Could not connect to payment service. Please try again.');
   }
 }
 

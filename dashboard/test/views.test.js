@@ -58,7 +58,7 @@ test('recent sessions displays fallback workouts when selected month has 0 worko
   const emptyMonth = fixture({ month: '2026-10-01' });
   const html = shell(emptyMonth, config);
   assert.match(html, /data-workout="current"/);
-  assert.match(html, /Ingen økter denne måneden/);
+  assert.match(html, /No workouts this month/);
 });
 
 test('calendar renders adjacent cards but counts the selected period, hiding cancelled plans', () => {

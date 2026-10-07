@@ -26,7 +26,8 @@ class Settings:
     vipps_currency: str = "NOK"
     dashboard_url: str = "http://localhost:8000/dashboard"
     gemini_api_key: str | None = None
-    gemini_model: str = "gemini-1.5-pro"
+    gemini_model: str = "gemini-2.5-flash"
+    vertex_location: str = "europe-west1"
 
     @classmethod
     def from_env(cls):
@@ -53,5 +54,6 @@ class Settings:
             vipps_currency=os.getenv("VIPPS_CURRENCY", "NOK"),
             dashboard_url=os.getenv("DASHBOARD_URL", "http://localhost:8000/dashboard"),
             gemini_api_key=os.getenv("GEMINI_API_KEY"),
-            gemini_model=os.getenv("GEMINI_MODEL", "gemini-1.5-pro"),
+            gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+            vertex_location=os.getenv("VERTEX_LOCATION", "europe-west1"),
         )

@@ -5,6 +5,15 @@ export function countWords(text) {
   return text.trim().split(/\s+/).length;
 }
 
+export function formatModelName(model) {
+  if (!model) return 'Gemini 2.5 Flash';
+  if (model.includes('gemini-2.5-flash')) return 'Gemini 2.5 Flash';
+  if (model.includes('gemini-2.5-pro')) return 'Gemini 2.5 Pro';
+  if (model.includes('gemini-1.5-flash')) return 'Gemini 1.5 Flash';
+  if (model.includes('gemini-1.5-pro')) return 'Gemini 1.5 Pro';
+  return model;
+}
+
 export function renderMarkdown(text) {
   if (!text) return '';
   const inline = (s) =>
@@ -90,39 +99,40 @@ export async function openChatDrawer(api) {
     <aside class="drawer chat-drawer" role="dialog" aria-modal="true" aria-label="AI Coach">
       <header class="drawer-header chat-header">
         <div class="drawer-kind">
-          <span class="chat-status-dot"></span>
+          <span aria-hidden="true">✦</span>
           <strong>AI COACH</strong>
+          <span class="chat-model-badge" id="chat-model-badge">Gemini 2.5 Flash</span>
         </div>
-        <button class="icon-button" data-action="close-chat" aria-label="Lukk" title="Lukk">
+        <button class="icon-button" data-action="close-chat" aria-label="Close" title="Close">
           ✕
         </button>
       </header>
 
       <div class="chat-goal-section">
         <button class="chat-goal-toggle" id="chat-goal-toggle" aria-expanded="false">
-          <span>🎯 Sesongmål & fokus</span>
+          <span>🎯 Season Goal & Focus</span>
           <span id="chat-goal-arrow">▾</span>
         </button>
         <div class="chat-goal-body" id="chat-goal-body" style="display: none;">
           <textarea
             id="chat-goal-input"
             class="chat-goal-textarea"
-            placeholder="Beskriv sesongmålet ditt (maks 100 ord)..."
+            placeholder="Describe your season goal (max 100 words)..."
             rows="3"
           ></textarea>
           <div class="chat-goal-footer">
-            <span id="chat-goal-counter">0 / 100 ord</span>
-            <button id="chat-goal-save" class="button primary small">Lagre mål</button>
+            <span id="chat-goal-counter">0 / 100 words</span>
+            <button id="chat-goal-save" class="button primary small">Save Goal</button>
           </div>
           <p id="chat-goal-error" class="form-error" style="display: none;">
-            Maks 100 ord tillatt.
+            Maximum 100 words allowed.
           </p>
         </div>
       </div>
 
       <div class="chat-messages" id="chat-messages" role="log" aria-live="polite">
         <div class="chat-loading">
-          <span class="spinner" aria-hidden="true"></span> Laster samtale...
+          <span class="spinner" aria-hidden="true"></span> Loading conversation...
         </div>
       </div>
 
@@ -130,7 +140,7 @@ export async function openChatDrawer(api) {
         <textarea
           id="chat-message-input"
           class="chat-message-input"
-          placeholder="Spør coachen om form, CP eller neste økt..."
+          placeholder="Ask coach about fitness, CP, or next workout..."
           rows="1"
           required
         ></textarea>
@@ -147,7 +157,7 @@ export async function openChatDrawer(api) {
   `;
 
   bindDrawerEvents(root);
-  await Promise.all([loadGoal(), loadHistory()]);
+  await Promise.all([loadGoal(), loadHistory(), loadModel()]);
 }
 
 export function toggleChatDrawer(api) {
@@ -177,7 +187,7 @@ function bindDrawerEvents(root) {
 
   const checkGoal = () => {
     const words = countWords(input.value);
-    counter.textContent = `${words} / 100 ord`;
+    counter.textContent = `${words} / 100 words`;
     const ok = words <= 100;
     counter.classList.toggle('error', !ok);
     save.disabled = !ok;
@@ -190,21 +200,21 @@ function bindDrawerEvents(root) {
   save?.addEventListener('click', async () => {
     if (!checkGoal()) return;
     save.disabled = true;
-    save.textContent = 'Lagrer...';
+    save.textContent = 'Saving...';
     try {
       await activeApi('/user/goal', null, {
         method: 'POST',
         body: JSON.stringify({ goal: input.value.trim() }),
       });
-      save.textContent = 'Lagret ✓';
+      save.textContent = 'Saved ✓';
       setTimeout(() => {
-        save.textContent = 'Lagre mål';
+        save.textContent = 'Save Goal';
         save.disabled = false;
       }, 1500);
     } catch {
-      save.textContent = 'Feilet';
+      save.textContent = 'Failed';
       setTimeout(() => {
-        save.textContent = 'Lagre mål';
+        save.textContent = 'Save Goal';
         save.disabled = false;
       }, 1500);
     }
@@ -249,7 +259,18 @@ async function loadGoal() {
     const res = await activeApi('/user/goal');
     if (res?.goal) {
       input.value = res.goal;
-      if (counter) counter.textContent = `${countWords(res.goal)} / 100 ord`;
+      if (counter) counter.textContent = `${countWords(res.goal)} / 100 words`;
+    }
+  } catch {}
+}
+
+async function loadModel() {
+  const badge = document.getElementById('chat-model-badge');
+  if (!badge || !activeApi) return;
+  try {
+    const res = await activeApi('/chat/model');
+    if (res?.model) {
+      badge.textContent = formatModelName(res.model);
     }
   } catch {}
 }
@@ -282,7 +303,7 @@ function renderWelcome(container) {
   const el = document.createElement('div');
   el.className = 'chat-msg coach';
   el.innerHTML = renderMarkdown(
-    'Hei Magne! Jeg er din AI Coach. Spør meg om formkurven, Critical Power, dagsform eller forslag til neste økt!',
+    "Hi Magne! I'm your AI Coach powered by Gemini. Ask me about your fitness curve (PMC), Critical Power, daily readiness, or workout recommendations!",
   );
   container.appendChild(el);
 }
@@ -337,6 +358,10 @@ async function streamChat(text, sendBtn) {
         if (!raw) continue;
         try {
           const payload = JSON.parse(raw);
+          if (payload.model) {
+            const badge = document.getElementById('chat-model-badge');
+            if (badge) badge.textContent = formatModelName(payload.model);
+          }
           if (payload.chunk) {
             acc += payload.chunk;
             coachEl.innerHTML = renderMarkdown(acc);
@@ -349,10 +374,10 @@ async function streamChat(text, sendBtn) {
       }
     }
     if (!acc) {
-      coachEl.innerHTML = renderMarkdown('Jeg fikk ikke generert noe svar. Vennligst prøv igjen.');
+      coachEl.innerHTML = renderMarkdown('I could not generate a response. Please try again.');
     }
   } catch (err) {
-    coachEl.innerHTML = `<p class="form-error">Feil: ${esc(err.message || 'Tilkoblingsfeil')}</p>`;
+    coachEl.innerHTML = `<p class="form-error">Error: ${esc(err.message || 'Connection error')}</p>`;
   } finally {
     coachEl.classList.remove('streaming');
     isStreaming = false;

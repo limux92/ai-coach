@@ -5,6 +5,31 @@ by Magne when moving the main conversation to Gemini. It supersedes older role
 assignments that made Codex the conversational lead and Gemini an infrastructure
 worker. It records decisions and evidence; it does not authorize a deployment.
 
+## 7 October continuation
+
+Outcomes completed & verified:
+1. In-App Conversational Coach Drawer (CHAT-01) & Critical Power Refinement (PHY-01):
+   - Omnipresent floating coach button (`.coach-fab`) with responsive slide-over drawer in dashboard shell.
+   - Real-time SSE token streaming (`/v1/chat/stream`) via MCP proxy with Gemini system prompt integration.
+   - Expandable athlete goal accordion note with client/server validation (<= 100 words).
+   - Pre-injected physiological context (`/v1/context`) and token metering with owner bypass (`magne@fam-lima.net` / `N0lThhWrg4YfdoYwHjJbvl5swmk2`).
+   - Critical Power regression and profile persistence (PHY-01) removing 250W fallback.
+   - All tests passing: 654 backend tests, 205 adapter tests, 28 dashboard tests.
+   - Gzip budgets verified: JS gzip 48.58 KB <= 50.00 KB; CSS gzip 5.99 KB <= 6.00 KB; largest source file 11.41 KB <= 12.00 KB.
+2. Cloud Release & Verification:
+   - Commit: `d39a8c0cc2c2e768286abdb755e292bcdebd2708` on `release/lightweight-dark-dashboard` (PR #4, 4/4 CI checks passed).
+   - Deployment receipt: `.local/deployments/261006-223737-20ce/summary.json`.
+   - Deployed revisions at 100% traffic: `ai-coach-sync-r-d39a8c0c-261006-223737-20ce` and `ai-coach-chat-r-d39a8c0c-261006-223737-20ce`.
+   - Public dashboard verified live at `https://aiworkoutbuilder.app/dashboard/` (HTTP 200, `.coach-fab` present).
+3. English Localization, Vertex AI Gemini 2.5 Flash Live Streaming & Gemini Look and Feel:
+   - Diagnosed previous 'superfast' execution: Cloud Run lacked an AI Studio key / hit prepayment credit limits, which caused `chat_service.py` to fall back to a 4-chunk mock stream returning in < 10ms.
+   - Identified model & runtime: `gemini-2.5-flash` running on Google Cloud Vertex AI in region `europe-west1` on project `magne-ai-coach-20260915`.
+   - Wired Vertex AI ADC token acquisition in `src/ai_coach/chat_service.py` (`roles/aiplatform.user` granted to Cloud Run service account).
+   - Added English system prompt instruction and real SSE streaming from Vertex AI endpoint. Added `GET /v1/chat/model` and MCP proxy endpoint.
+   - Complete frontend localization: converted all dashboard views (`chat.js`, `login.js`, `recent.js`, `shell.js`, `main.js`) entirely to English (terms modal, registration, pending payment, workout fallbacks, coach drawer).
+   - Gemini look & feel: stylized FAB with Gemini blue accent and ✦ star icon, chat drawer header with pill badge (`Gemini 2.5 Flash`) reflecting active model version, and blue message accent.
+   - Quality gates: 654 backend tests, 205 adapter tests, 29 dashboard node tests passing. Gzip budgets verified: JS gzip 48.61 KB <= 50.00 KB; CSS gzip 5.997 KB <= 6.00 KB; largest source file 11.88 KB <= 12.00 KB.
+
 ## 5 October continuation
 
 Outcomes completed & verified:

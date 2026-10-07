@@ -341,6 +341,15 @@ def dashboard_routes(settings, backend, verifier, static_dir=None):
         except BackendError as exc:
             return JSONResponse({"error": str(exc)}, status_code=exc.status_code)
 
+    @bounded
+    async def chat_model(request):
+        user_id = request.scope.get("user_id")
+        try:
+            data = await backend.get("/v1/chat/model", {}, user_id=user_id)
+            return JSONResponse(data)
+        except BackendError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=exc.status_code)
+
     async def shell(request):
         relative = request.path_params.get("path", "")
         parts = relative.split("/")
@@ -372,6 +381,7 @@ def dashboard_routes(settings, backend, verifier, static_dir=None):
         Route("/user/goal", get_goal, methods=["GET"]),
         Route("/user/goal", save_goal, methods=["POST"]),
         Route("/chat/history", chat_history, methods=["GET"]),
+        Route("/chat/model", chat_model, methods=["GET"]),
         Route("/chat/stream", chat_stream, methods=["POST"]),
         Route("/billing/checkout", checkout, methods=["POST"]),
         Route("/billing/portal", portal, methods=["POST"]),

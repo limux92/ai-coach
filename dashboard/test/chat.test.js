@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { countWords, renderMarkdown } from '../src/views/chat.js';
+import { countWords, renderMarkdown, formatModelName } from '../src/views/chat.js';
 
 test('countWords counts whitespace separated words accurately', () => {
   assert.equal(countWords(''), 0);
@@ -11,6 +11,15 @@ test('countWords counts whitespace separated words accurately', () => {
   assert.equal(countWords('   Leading,   multiple   spaces, and\ttrailing.  '), 5);
   const hundredWords = Array(100).fill('tempo').join(' ');
   assert.equal(countWords(hundredWords), 100);
+});
+
+test('formatModelName formats gemini model ids to readable labels', () => {
+  assert.equal(formatModelName(null), 'Gemini 2.5 Flash');
+  assert.equal(formatModelName(''), 'Gemini 2.5 Flash');
+  assert.equal(formatModelName('gemini-2.5-flash'), 'Gemini 2.5 Flash');
+  assert.equal(formatModelName('publishers/google/models/gemini-2.5-flash'), 'Gemini 2.5 Flash');
+  assert.equal(formatModelName('gemini-2.5-pro'), 'Gemini 2.5 Pro');
+  assert.equal(formatModelName('custom-agent-v1'), 'custom-agent-v1');
 });
 
 test('renderMarkdown escapes raw HTML and formats basic markdown', () => {
