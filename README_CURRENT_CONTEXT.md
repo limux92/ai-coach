@@ -46,6 +46,6 @@ All upcoming epics, feature stories, priorities, and acceptance criteria are tra
 
 Current planning focus areas:
 1. **Critical Power Verification (PHY-01):** Validating CP pickup against real athlete data and eliminating fallback discrepancies.
-2. **Dashboard In-App Chat Interface (CHAT-01):** Bringing conversational coaching directly into the web app.
+2. **Dashboard In-App Chat Interface (CHAT-01):** Real-time conversational coach drawer, Vertex AI Gemini 2.5 Flash live streaming, and 30-day tab/session chat history persistence with instant cache rendering verified.
 3. **Interactive Workout Builder (PLAN-01 & PLAN-02):** Visual interval builder with push sync to Intervals.icu calendar.
 4. **Vipps Production Commercialization (BIZ-01):** Transitioning recurring billing to production merchant credentials.

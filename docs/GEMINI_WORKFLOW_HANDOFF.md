@@ -39,6 +39,13 @@ Outcomes completed & verified:
      * Deployment receipt: `.local/deployments/261007-062536-cac3/summary.json`.
      * Deployed revisions at 100% traffic: `ai-coach-sync-r-c64a7600-261007-062536-cac3` and `ai-coach-chat-r-c64a7600-261007-062536-cac3`.
      * Public dashboard verified live at `https://aiworkoutbuilder.app/dashboard/` (HTTP 200).
+5. Chat History Persistence Across Tabs & Sessions (CHAT-01 fix):
+   - Diagnosed root cause of disappearing history: Firestore message saving was working (`save_chat_message()`), but `BackendClient.get` in `adapters/mcp/src/ai_coach_mcp/backend.py` only accepted a JSON dictionary (`dict`), throwing HTTP 503 `BackendError` when `/v1/chat/history` returned a JSON array (`list[dict]`).
+   - Fixed gateway proxy to accept `(dict, list)` responses and added `model` to `ALLOWED_ROUTES`.
+   - Increased backend history query parameter limit default from 20 to 50 (max 100) in `src/ai_coach/main.py`.
+   - Implemented client-side `localStorage` caching with 30-day retention (`CHAT_CACHE_KEY`, `CHAT_CACHE_TTL_MS`) in `dashboard/src/views/chat.js`. Render cached history instantly (<1ms) when opening the drawer in a new tab or after refresh, then reconcile with authoritative server history in the background.
+   - Authored unit test suites: `test_chat_gateway_forwarding_and_list_support` in `adapters/mcp/tests/test_dashboard.py` and 6 localStorage cache/TTL tests in `dashboard/test/chat.test.js`.
+   - Quality gates verified: 654 backend tests, 206 adapter tests, 35 dashboard tests passing; file budgets within limits (views/chat.js 11,981 <= 12,000 bytes; JS gzip 48.80 KB <= 50.00 KB; CSS gzip 6.00 KB <= 6.00 KB).
 
 ## 5 October continuation
 

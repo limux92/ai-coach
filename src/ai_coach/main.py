@@ -340,7 +340,7 @@ def save_user_goal(body: GoalRequest):
 
 
 @app.get("/v1/chat/history")
-def get_chat_history(limit: Annotated[int, Query(ge=1, le=50)] = 20):
+def get_chat_history(limit: Annotated[int, Query(ge=1, le=100)] = 50):
     user_id = _current_user_id.get()
     if not user_id:
         raise HTTPException(401, "User ID required")

@@ -292,3 +292,53 @@ def test_billing_gateway_forwarding(settings, key):
         sync_res = client.post("/dashboard/api/user/sync", headers=token, json={"backfill": False})
         assert sync_res.status_code == 200
         assert calls[5].headers.get("x-user-id") == "athlete-sub-1"
+
+
+def test_chat_gateway_forwarding_and_list_support(settings, key):
+    from dataclasses import replace
+    mt_settings = replace(settings, multi_tenant=True)
+    calls = []
+
+    def backend(request):
+        calls.append(request)
+        if request.url.path == "/v1/chat/history":
+            return httpx.Response(200, json=[
+                {"id": "msg_1", "role": "user", "content": "What is my CP?", "created_at": "2026-10-07T10:00:00Z"},
+                {"id": "msg_2", "role": "model", "content": "Your CP is 290W.", "created_at": "2026-10-07T10:00:05Z"}
+            ], headers={"Content-Type": "application/json"})
+        if request.url.path == "/v1/chat/model":
+            return httpx.Response(200, json={"model": "gemini-2.5-flash"}, headers={"Content-Type": "application/json"})
+        if request.url.path == "/v1/user/goal":
+            if request.method == "POST":
+                return httpx.Response(200, json={"goal": "Marathon sub-3", "word_count": 2}, headers={"Content-Type": "application/json"})
+            return httpx.Response(200, json={"goal": "Marathon sub-3", "word_count": 2}, headers={"Content-Type": "application/json"})
+        return httpx.Response(404, json={"error": "not found"}, headers={"Content-Type": "application/json"})
+
+    app, _, _ = setup(mt_settings, key, backend)
+    with client_for(app, mt_settings) as client:
+        token = bearer(key, settings, sub="athlete-sub-2", email_verified=True)
+
+        # Chat history returns list through gateway
+        hist_res = client.get("/dashboard/api/chat/history", headers=token)
+        assert hist_res.status_code == 200
+        items = hist_res.json()
+        assert isinstance(items, list)
+        assert len(items) == 2
+        assert items[0]["content"] == "What is my CP?"
+        assert calls[0].headers.get("x-user-id") == "athlete-sub-2"
+
+        # Chat model returns model dict
+        model_res = client.get("/dashboard/api/chat/model", headers=token)
+        assert model_res.status_code == 200
+        assert model_res.json()["model"] == "gemini-2.5-flash"
+        assert calls[1].headers.get("x-user-id") == "athlete-sub-2"
+
+        # Goal get and save
+        goal_res = client.get("/dashboard/api/user/goal", headers=token)
+        assert goal_res.status_code == 200
+        assert goal_res.json()["goal"] == "Marathon sub-3"
+        assert calls[2].headers.get("x-user-id") == "athlete-sub-2"
+
+        save_goal = client.post("/dashboard/api/user/goal", headers=token, json={"goal": "Marathon sub-3"})
+        assert save_goal.status_code == 200
+        assert calls[3].headers.get("x-user-id") == "athlete-sub-2"

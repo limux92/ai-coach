@@ -20,7 +20,7 @@ ALLOWED_ROUTES = re.compile(
     r"dashboard/(?:workouts|planned-workouts|workouts/[a-zA-Z0-9_.-]{1,180})|"
     r"workouts/[a-zA-Z0-9_.-]{1,180}(?:/samples|/physiology)?|"
     r"user/(?:register|profile|intervals-credentials|sync|goal)|"
-    r"chat/(?:history|stream)|"
+    r"chat/(?:history|stream|model)|"
     r"billing/(?:checkout|portal|vipps/activate))\Z")
 
 
@@ -59,7 +59,7 @@ class BackendClient:
         self.client = client
         self.token_provider = token_provider or GoogleIDTokenProvider(settings.backend_url)
 
-    async def get(self, path: str, params: dict[str, Any] | None = None, *, user_id: str | None = None) -> dict:
+    async def get(self, path: str, params: dict[str, Any] | None = None, *, user_id: str | None = None) -> dict | list:
         if not ALLOWED_ROUTES.fullmatch(path) or "/../" in path or path.endswith("/.."):
             raise BackendError("Unsupported backend operation")
         try:
@@ -95,7 +95,7 @@ class BackendClient:
                     if len(data) > MAX_RESPONSE_BYTES:
                         raise BackendError("Response is too large; request fewer days or a smaller page")
                 parsed = json.loads(data)
-                if not isinstance(parsed, dict):
+                if not isinstance(parsed, (dict, list)):
                     raise BackendError("The coach backend returned an unexpected response")
                 return parsed
         except BackendError:

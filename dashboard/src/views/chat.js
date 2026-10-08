@@ -1,5 +1,8 @@
 import { escapeHTML as esc } from '../data.js';
 
+export const CHAT_CACHE_KEY = 'ai_coach_chat_history';
+export const CHAT_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
 export function countWords(text) {
   if (typeof text !== 'string' || text.trim() === '') return 0;
   return text.trim().split(/\s+/).length;
@@ -7,11 +10,40 @@ export function countWords(text) {
 
 export function formatModelName(model) {
   if (!model) return 'Gemini 2.5 Flash';
-  if (model.includes('gemini-2.5-flash')) return 'Gemini 2.5 Flash';
-  if (model.includes('gemini-2.5-pro')) return 'Gemini 2.5 Pro';
-  if (model.includes('gemini-1.5-flash')) return 'Gemini 1.5 Flash';
-  if (model.includes('gemini-1.5-pro')) return 'Gemini 1.5 Pro';
+  for (const m of ['2.5 Pro', '2.5 Flash', '1.5 Pro', '1.5 Flash']) {
+    if (model.includes(m.toLowerCase().replace(' ', '-'))) return `Gemini ${m}`;
+  }
   return model;
+}
+
+export function getLocalHistory(storage = globalThis?.localStorage) {
+  try {
+    const raw = storage?.getItem(CHAT_CACHE_KEY);
+    if (!raw) return [];
+    const { savedAt, messages } = JSON.parse(raw);
+    return Date.now() - (savedAt || 0) <= CHAT_CACHE_TTL_MS && Array.isArray(messages)
+      ? messages
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveLocalHistory(messages, storage = globalThis?.localStorage) {
+  try {
+    if (storage && Array.isArray(messages)) {
+      storage.setItem(
+        CHAT_CACHE_KEY,
+        JSON.stringify({ savedAt: Date.now(), messages: messages.slice(-50) }),
+      );
+    }
+  } catch {}
+}
+
+export function appendLocalMessage(msg, storage = globalThis?.localStorage) {
+  const list = getLocalHistory(storage);
+  list.push(msg);
+  saveLocalHistory(list, storage);
 }
 
 export function renderMarkdown(text) {
@@ -25,32 +57,29 @@ export function renderMarkdown(text) {
   const lines = text.split('\n');
   const out = [];
   let i = 0;
-
   while (i < lines.length) {
-    const trimmed = lines[i].trim();
-    if (trimmed.startsWith('```')) {
-      const lang = trimmed.slice(3).trim();
+    const t = lines[i].trim();
+    if (t.startsWith('```')) {
+      const lang = t.slice(3).trim();
       const buf = [];
       i++;
-      while (i < lines.length && !lines[i].trim().startsWith('```')) {
-        buf.push(esc(lines[i++]));
-      }
+      while (i < lines.length && !lines[i].trim().startsWith('```')) buf.push(esc(lines[i++]));
       i++;
       const cls = lang ? ` class="language-${esc(lang)}"` : '';
       out.push(`<pre><code${cls}>${buf.join('\n')}</code></pre>`);
-    } else if (/^[-*]\s/.test(trimmed)) {
+    } else if (/^[-*]\s/.test(t)) {
       const items = [];
       while (i < lines.length && /^[-*]\s/.test(lines[i].trim())) {
         items.push(`<li>${inline(esc(lines[i++].trim().replace(/^[-*]\s/, '')))}</li>`);
       }
       out.push(`<ul>${items.join('')}</ul>`);
-    } else if (trimmed === '') {
+    } else if (!t) {
       i++;
     } else {
       const buf = [];
       while (
         i < lines.length &&
-        lines[i].trim() !== '' &&
+        lines[i].trim() &&
         !lines[i].trim().startsWith('```') &&
         !/^[-*]\s/.test(lines[i].trim())
       ) {
@@ -81,9 +110,8 @@ export function closeChatDrawer() {
   if (!isOpen) return;
   isOpen = false;
   document.body.classList.remove('chat-drawer-open');
-  const root = getRoot();
-  root.innerHTML = '';
-  if (prevFocus && typeof prevFocus.focus === 'function') prevFocus.focus();
+  getRoot().innerHTML = '';
+  prevFocus?.focus?.();
 }
 
 export async function openChatDrawer(api) {
@@ -94,67 +122,31 @@ export async function openChatDrawer(api) {
   document.body.classList.add('chat-drawer-open');
 
   const root = getRoot();
-  root.innerHTML = /* HTML */ `
-    <div class="drawer-backdrop chat-backdrop" data-action="close-chat"></div>
-    <aside class="drawer chat-drawer" role="dialog" aria-modal="true" aria-label="AI Coach">
-      <header class="drawer-header chat-header">
-        <div class="drawer-kind">
-          <span aria-hidden="true">✦</span>
-          <strong>AI COACH</strong>
-          <span class="chat-model-badge" id="chat-model-badge">Gemini 2.5 Flash</span>
-        </div>
-        <button class="icon-button" data-action="close-chat" aria-label="Close" title="Close">
-          ✕
-        </button>
-      </header>
-
-      <div class="chat-goal-section">
-        <button class="chat-goal-toggle" id="chat-goal-toggle" aria-expanded="false">
-          <span>🎯 Season Goal & Focus</span>
-          <span id="chat-goal-arrow">▾</span>
-        </button>
-        <div class="chat-goal-body" id="chat-goal-body" style="display: none;">
-          <textarea
-            id="chat-goal-input"
-            class="chat-goal-textarea"
-            placeholder="Describe your season goal (max 100 words)..."
-            rows="3"
-          ></textarea>
-          <div class="chat-goal-footer">
-            <span id="chat-goal-counter">0 / 100 words</span>
-            <button id="chat-goal-save" class="button primary small">Save Goal</button>
-          </div>
-          <p id="chat-goal-error" class="form-error" style="display: none;">
-            Maximum 100 words allowed.
-          </p>
-        </div>
-      </div>
-
-      <div class="chat-messages" id="chat-messages" role="log" aria-live="polite">
-        <div class="chat-loading">
-          <span class="spinner" aria-hidden="true"></span> Loading conversation...
-        </div>
-      </div>
-
-      <form class="chat-input-form" id="chat-input-form">
-        <textarea
-          id="chat-message-input"
-          class="chat-message-input"
-          placeholder="Ask coach about fitness, CP, or next workout..."
-          rows="1"
-          required
-        ></textarea>
-        <button
-          type="submit"
-          id="chat-send-btn"
-          class="button primary chat-send-btn"
-          aria-label="Send"
-        >
-          Send
-        </button>
-      </form>
-    </aside>
-  `;
+  root.innerHTML = `<div class="drawer-backdrop chat-backdrop" data-action="close-chat"></div>
+<aside class="drawer chat-drawer" role="dialog" aria-modal="true" aria-label="AI Coach">
+<header class="drawer-header chat-header">
+<div class="drawer-kind"><span aria-hidden="true">✦</span><strong>AI COACH</strong>
+<span class="chat-model-badge" id="chat-model-badge">Gemini 2.5 Flash</span></div>
+<button class="icon-button" data-action="close-chat" aria-label="Close">✕</button>
+</header>
+<div class="chat-goal-section">
+<button class="chat-goal-toggle" id="chat-goal-toggle" aria-expanded="false">
+<span>🎯 Season Goal & Focus</span><span id="chat-goal-arrow">▾</span></button>
+<div class="chat-goal-body" id="chat-goal-body" style="display:none;">
+<textarea id="chat-goal-input" class="chat-goal-textarea" placeholder="Describe your season goal (max 100 words)..." rows="3"></textarea>
+<div class="chat-goal-footer"><span id="chat-goal-counter">0 / 100 words</span>
+<button id="chat-goal-save" class="button primary small">Save Goal</button></div>
+<p id="chat-goal-error" class="form-error" style="display:none;">Maximum 100 words allowed.</p>
+</div>
+</div>
+<div class="chat-messages" id="chat-messages" role="log" aria-live="polite">
+<div class="chat-loading"><span class="spinner" aria-hidden="true"></span> Loading conversation...</div>
+</div>
+<form class="chat-input-form" id="chat-input-form">
+<textarea id="chat-message-input" class="chat-message-input" placeholder="Ask coach about fitness, CP, or next workout..." rows="1" required></textarea>
+<button type="submit" id="chat-send-btn" class="button primary chat-send-btn" aria-label="Send">Send</button>
+</form>
+</aside>`;
 
   bindDrawerEvents(root);
   await Promise.all([loadGoal(), loadHistory(), loadModel()]);
@@ -170,13 +162,18 @@ function bindDrawerEvents(root) {
     .querySelectorAll('[data-action="close-chat"]')
     .forEach((b) => b.addEventListener('click', closeChatDrawer));
 
-  const toggle = root.querySelector('#chat-goal-toggle');
-  const body = root.querySelector('#chat-goal-body');
-  const arrow = root.querySelector('#chat-goal-arrow');
-  const input = root.querySelector('#chat-goal-input');
-  const counter = root.querySelector('#chat-goal-counter');
-  const save = root.querySelector('#chat-goal-save');
-  const err = root.querySelector('#chat-goal-error');
+  const [toggle, body, arrow, input, counter, save, err, form, msgInput, sendBtn] = [
+    '#chat-goal-toggle',
+    '#chat-goal-body',
+    '#chat-goal-arrow',
+    '#chat-goal-input',
+    '#chat-goal-counter',
+    '#chat-goal-save',
+    '#chat-goal-error',
+    '#chat-input-form',
+    '#chat-message-input',
+    '#chat-send-btn',
+  ].map((s) => root.querySelector(s));
 
   toggle?.addEventListener('click', () => {
     const exp = toggle.getAttribute('aria-expanded') === 'true';
@@ -207,22 +204,15 @@ function bindDrawerEvents(root) {
         body: JSON.stringify({ goal: input.value.trim() }),
       });
       save.textContent = 'Saved ✓';
-      setTimeout(() => {
-        save.textContent = 'Save Goal';
-        save.disabled = false;
-      }, 1500);
     } catch {
       save.textContent = 'Failed';
+    } finally {
       setTimeout(() => {
         save.textContent = 'Save Goal';
         save.disabled = false;
       }, 1500);
     }
   });
-
-  const form = root.querySelector('#chat-input-form');
-  const msgInput = root.querySelector('#chat-message-input');
-  const sendBtn = root.querySelector('#chat-send-btn');
 
   msgInput?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -239,6 +229,7 @@ function bindDrawerEvents(root) {
 
     msgInput.value = '';
     appendMessage('user', text);
+    appendLocalMessage({ role: 'user', content: text, created_at: new Date().toISOString() });
     await streamChat(text, sendBtn);
   });
 
@@ -252,12 +243,12 @@ function bindDrawerEvents(root) {
 }
 
 async function loadGoal() {
-  const input = document.getElementById('chat-goal-input');
-  const counter = document.getElementById('chat-goal-counter');
-  if (!input || !activeApi) return;
+  if (!activeApi) return;
   try {
     const res = await activeApi('/user/goal');
-    if (res?.goal) {
+    const input = document.getElementById('chat-goal-input');
+    const counter = document.getElementById('chat-goal-counter');
+    if (input && res?.goal) {
       input.value = res.goal;
       if (counter) counter.textContent = `${countWords(res.goal)} / 100 words`;
     }
@@ -269,43 +260,46 @@ async function loadModel() {
   if (!badge || !activeApi) return;
   try {
     const res = await activeApi('/chat/model');
-    if (res?.model) {
-      badge.textContent = formatModelName(res.model);
-    }
+    if (res?.model) badge.textContent = formatModelName(res.model);
   } catch {}
 }
 
 async function loadHistory() {
-  const container = document.getElementById('chat-messages');
-  if (!container || !activeApi) return;
+  const c = document.getElementById('chat-messages');
+  if (!c || !activeApi) return;
+  const cached = getLocalHistory();
+  const roleOf = (m) => (m.role === 'model' || m.role === 'assistant' ? 'coach' : 'user');
+  const render = (items) => {
+    c.innerHTML = '';
+    for (const m of items) appendMessage(roleOf(m), m.content, false);
+    c.scrollTop = c.scrollHeight;
+  };
+  if (cached.length) render(cached);
   try {
-    const messages = await activeApi('/chat/history');
-    container.innerHTML = '';
-    if (!Array.isArray(messages) || messages.length === 0) {
-      renderWelcome(container);
+    const res = await activeApi('/chat/history');
+    if (Array.isArray(res) && res.length) {
+      const mapped = res.map((m) => ({
+        role: roleOf(m),
+        content: m.content,
+        created_at: m.created_at,
+      }));
+      render(mapped);
+      saveLocalHistory(mapped);
       return;
     }
-    for (const m of messages) {
-      appendMessage(
-        m.role === 'model' || m.role === 'assistant' ? 'coach' : 'user',
-        m.content,
-        false,
-      );
-    }
-    container.scrollTop = container.scrollHeight;
-  } catch {
-    container.innerHTML = '';
-    renderWelcome(container);
+  } catch {}
+  if (!cached.length) {
+    c.innerHTML = '';
+    renderWelcome();
   }
 }
 
-function renderWelcome(container) {
-  const el = document.createElement('div');
-  el.className = 'chat-msg coach';
-  el.innerHTML = renderMarkdown(
+function renderWelcome() {
+  appendMessage(
+    'coach',
     "Hi Magne! I'm your AI Coach powered by Gemini. Ask me about your fitness curve (PMC), Critical Power, daily readiness, or workout recommendations!",
+    false,
   );
-  container.appendChild(el);
 }
 
 function appendMessage(role, content, scroll = true) {
@@ -335,13 +329,13 @@ async function streamChat(text, sendBtn) {
 
   let acc = '';
   try {
-    const response = await activeApi('/chat/stream', null, {
+    const res = await activeApi('/chat/stream', null, {
       method: 'POST',
       body: JSON.stringify({ message: text }),
       stream: true,
     });
 
-    const reader = response.body.getReader();
+    const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buf = '';
 
@@ -367,14 +361,14 @@ async function streamChat(text, sendBtn) {
             coachEl.innerHTML = renderMarkdown(acc);
             c.scrollTop = c.scrollHeight;
           }
-          if (payload.error) {
-            coachEl.innerHTML += `<p class="form-error">${esc(payload.error)}</p>`;
-          }
+          if (payload.error) coachEl.innerHTML += `<p class="form-error">${esc(payload.error)}</p>`;
         } catch {}
       }
     }
     if (!acc) {
       coachEl.innerHTML = renderMarkdown('I could not generate a response. Please try again.');
+    } else {
+      appendLocalMessage({ role: 'coach', content: acc, created_at: new Date().toISOString() });
     }
   } catch (err) {
     coachEl.innerHTML = `<p class="form-error">Error: ${esc(err.message || 'Connection error')}</p>`;
