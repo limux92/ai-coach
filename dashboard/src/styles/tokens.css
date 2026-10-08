@@ -1,0 +1,26 @@
+:root {
+  --bg: #181b20;
+  --surface: #22272e;
+  --surface-raised: #2b323b;
+  --navy: #14181d;
+  --hover: #303944;
+  --ink: #edf2f7;
+  --muted: #a5b1bf;
+  --line: #39434f;
+  --blue: #78b9ff;
+  --teal: #79d5b0;
+  --amber: #e8bb72;
+  --other: #b9b1ed;
+  --danger: #ff9898;
+  --run-bg: #193c33;
+  --cycle-bg: #3b3020;
+  --other-bg: #302d43;
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
+  color-scheme: dark;
+  font-size: 14px;
+  font-synthesis: none;
+  line-height: 1.5;
+}

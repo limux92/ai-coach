@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
-from google.api_core.exceptions import PreconditionFailed
+from google.api_core.exceptions import AlreadyExists, PreconditionFailed
 
 from ai_coach import storage
 
@@ -73,6 +73,8 @@ class FakeDB:
             def document(self, doc_id):
                 class Reference:
                     key = (name, doc_id)
+                    def collection(self, sub_name):
+                        return database.collection(f"{name}/{doc_id}/{sub_name}")
                     def get(self, transaction=None):
                         value = database.documents.get(self.key)
                         return SimpleNamespace(to_dict=lambda: copy.deepcopy(value), exists=value is not None)
@@ -82,9 +84,14 @@ class FakeDB:
     def transaction(self):
         database = self
         class Transaction:
-            def set(self, reference, updates, *, merge):
+            def set(self, reference, updates, *, merge=False):
                 before = database.documents.get(reference.key, {}) if merge else {}
                 database.documents[reference.key] = {**before, **copy.deepcopy(updates)}
+
+            def create(self, reference, updates):
+                if reference.key in database.documents:
+                    raise AlreadyExists("Immutable evidence exists")
+                self.set(reference, updates)
         return Transaction()
 
 
@@ -109,3 +116,98 @@ def test_unexpired_lease_blocks_another_worker_and_old_owner_cannot_release_new_
     state = store.db.documents[("sync_state", "intervals")]
     assert state["lease_owner"] is None
     assert state["last_success_at"] == current
+
+
+def test_evidence_transaction_records_revision_job_and_head_without_backdating(monkeypatch):
+    monkeypatch.setattr(storage.firestore, "transactional", lambda function: function)
+    monkeypatch.setattr(storage.firestore, "SERVER_TIMESTAMP", "server-commit-time")
+    store = storage.Store.__new__(storage.Store)
+    store.db = FakeDB()
+    doc = {"id": "w", "local_date": "2020-01-01", "sport": "Ride", "imported_at": "2020-01-01"}
+    store.commit_workout_evidence("w", doc, merge=False)
+    first = store.get("workouts", "w")
+    revision = store.get("physiology_revisions", first["physiology_revision_id"])
+    assert revision["known_at"] == "server-commit-time"
+    assert revision["sequence"] == first["physiology_revision_sequence"] == 1
+    assert store.get("physiology_jobs", revision["id"])["pending"] is True
+    assert store.get("sync_state", "physiology")["status"] == "pending"
+    store.commit_workout_evidence("w", doc, merge=False)
+    assert store.get("workouts", "w")["physiology_revision_id"] == revision["id"]
+    store.commit_workout_evidence("w", {"source_deleted": True})
+    second = store.get("workouts", "w")
+    updated = store.get("physiology_revisions", second["physiology_revision_id"])
+    assert updated["sequence"] == 2 and updated["previous_revision_id"] == revision["id"]
+    assert store.get("physiology_revisions", revision["id"]) == revision
+
+
+def test_expired_or_replaced_lease_cannot_publish_current_physiology(monkeypatch):
+    monkeypatch.setattr(storage.firestore, "transactional", lambda function: function)
+    store = storage.Store.__new__(storage.Store)
+    store.db = FakeDB()
+    now = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    monkeypatch.setattr(storage, "utcnow", lambda: now)
+    assert store.acquire_lease("a", seconds=60)
+    store.put_if_sync_owner("sync_state", "physiology", {"context_id": "a"}, "a")
+    now += timedelta(seconds=60)
+    with pytest.raises(RuntimeError, match="expired"):
+        store.put_if_sync_owner("sync_state", "physiology", {"context_id": "stale-a"}, "a")
+    assert store.acquire_lease("b")
+    store.put_if_sync_owner("sync_state", "physiology", {"context_id": "b"}, "b")
+    with pytest.raises(RuntimeError, match="expired"):
+        store.put_if_sync_owner("sync_state", "physiology", {"context_id": "stale-a"}, "a")
+    assert store.get("sync_state", "physiology")["context_id"] == "b"
+
+
+def test_user_scoped_ref_targets_user_subcollection():
+    store = storage.Store.__new__(storage.Store)
+    store.db = FakeDB()
+    store.user_id = None
+    user_store = store.for_user("athlete-123")
+    assert user_store.user_id == "athlete-123"
+    assert user_store.ref("workouts", "w1").key == ("users/athlete-123/workouts", "w1")
+    assert user_store.ref("wellness", "2026-10-01").key == ("users/athlete-123/wellness", "2026-10-01")
+    assert user_store.ref("physiology_models", "m1").key == ("users/athlete-123/physiology_models", "m1")
+
+
+def test_user_scoped_global_collections_stay_at_root():
+    store = storage.Store.__new__(storage.Store)
+    store.db = FakeDB()
+    user_store = store.for_user("athlete-123")
+    assert user_store.ref("schema", "v1").key == ("schema", "v1")
+    assert user_store.ref("upstream_budgets", "intervals").key == ("upstream_budgets", "intervals")
+    assert user_store.ref("users", "athlete-123").key == ("users", "athlete-123")
+
+
+def test_unscoped_ref_targets_root_collection():
+    store = storage.Store.__new__(storage.Store)
+    store.db = FakeDB()
+    store.user_id = None
+    assert store.ref("workouts", "w1").key == ("workouts", "w1")
+    assert store.ref("wellness", "2026-10-01").key == ("wellness", "2026-10-01")
+    assert store.ref("schema", "v1").key == ("schema", "v1")
+
+
+def test_user_scoped_archive_prefixes_user_path():
+    store = storage.Store.__new__(storage.Store)
+    store.bucket = FakeBucket()
+    store.user_id = None
+    user_store = store.for_user("athlete-42")
+    payload = b"athlete-activity-bytes"
+    user_artifact = user_store.archive("raw/activity-99", payload)
+    assert user_artifact["object"].startswith("users/athlete-42/raw/activity-99/")
+
+    root_artifact = store.archive("raw/activity-99", payload)
+    assert root_artifact["object"].startswith("raw/activity-99/")
+    assert root_artifact["object"] != user_artifact["object"]
+
+
+def test_invalid_user_id_rejected():
+    store = storage.Store.__new__(storage.Store)
+    store.db = FakeDB()
+    store.user_id = None
+    with pytest.raises(ValueError, match="Invalid document identifier"):
+        store.for_user("../malicious")
+    with pytest.raises(ValueError, match="Invalid document identifier"):
+        store.for_user("")
+    with pytest.raises(ValueError, match="Invalid document identifier"):
+        store.for_user("bad user with spaces")

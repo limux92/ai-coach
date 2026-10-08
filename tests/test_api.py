@@ -15,6 +15,14 @@ from ai_coach.config import Settings
 from ai_coach.storage import safe_id
 
 
+def test_static_health_never_reads_training_store(monkeypatch):
+    monkeypatch.setattr(main, "store", lambda: pytest.fail("Static health must not read data"))
+    with TestClient(main.app) as client:
+        response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"service": "ai-coach-data", "status": "ok", "version": "0.1.0"}
+
+
 class MemoryStore:
     def __init__(self):
         self.documents = {}
@@ -335,3 +343,150 @@ def test_small_valid_targets_accepts(api):
     response = client.post("/v1/planned-workouts", json=plan_body(targets={"effort": "moderate"}))
     assert response.status_code == 201
     assert len(memory.documents) == 1
+
+
+def test_user_register_creates_pending_payment_and_profile_retrieves_it(api):
+    client, memory = api
+    headers = {"x-user-id": "athlete-test-1"}
+    body = {"email": "athlete@example.com", "display_name": "New Runner"}
+    response = client.post("/v1/user/register", json=body, headers=headers)
+    assert response.status_code == 201
+    data = response.json()
+    assert data["id"] == "athlete-test-1"
+    assert data["email"] == "athlete@example.com"
+    assert data["display_name"] == "New Runner"
+    assert data["status"] == "pending_payment"
+    assert data["role"] == "athlete"
+
+    # Profile retrieves it
+    prof_res = client.get("/v1/user/profile", headers=headers)
+    assert prof_res.status_code == 200
+    assert prof_res.json()["id"] == "athlete-test-1"
+
+    # Idempotent call returns existing 200
+    idemp_res = client.post("/v1/user/register", json=body, headers=headers)
+    assert idemp_res.status_code == 200
+    assert idemp_res.json()["id"] == "athlete-test-1"
+
+
+def test_user_register_owner_is_active(api, monkeypatch):
+    client, memory = api
+    monkeypatch.setenv("FIREBASE_OWNER_UID", "owner-athlete-id")
+    headers = {"x-user-id": "owner-athlete-id"}
+    body = {"email": "owner@example.com", "display_name": "Coach Magne"}
+    response = client.post("/v1/user/register", json=body, headers=headers)
+    assert response.status_code == 201
+    assert response.json()["status"] == "active"
+
+
+def test_user_routes_require_user_id(api):
+    client, _ = api
+    assert client.post("/v1/user/register", json={"email": "a@b.com"}).status_code == 401
+    assert client.get("/v1/user/profile").status_code == 401
+
+
+def test_user_register_owner_by_email_magne(api):
+    client, memory = api
+    headers = {"x-user-id": "custom-owner-uid"}
+    body = {"email": "magne@fam-lima.net", "display_name": "Magne"}
+    response = client.post("/v1/user/register", json=body, headers=headers)
+    assert response.status_code == 201
+    data = response.json()
+    assert data["status"] == "active"
+    assert data["role"] == "owner"
+    assert data["is_owner"] is True
+
+
+def test_user_register_owner_by_uid_n0l(api):
+    client, memory = api
+    headers = {"x-user-id": "N0lThhWrg4YfdoYwHjJbvl5swmk2"}
+    body = {"email": "owner@fam-lima.net", "display_name": "Magne"}
+    response = client.post("/v1/user/register", json=body, headers=headers)
+    assert response.status_code == 201
+    data = response.json()
+    assert data["status"] == "active"
+    assert data["role"] == "owner"
+    assert data["is_owner"] is True
+
+
+def test_user_register_and_profile_auto_heals_pending_owner(api):
+    client, memory = api
+    owner_uid = "N0lThhWrg4YfdoYwHjJbvl5swmk2"
+    owner_email = "magne@fam-lima.net"
+    headers = {"x-user-id": owner_uid}
+
+    # Pre-populate an existing doc with pending_payment status
+    existing_doc = {
+        "id": owner_uid,
+        "email": owner_email,
+        "display_name": "Magne",
+        "status": "pending_payment",
+        "role": "athlete",
+        "is_owner": False,
+    }
+    memory.put("users", owner_uid, existing_doc, merge=False)
+
+    # Register heals the doc
+    body = {"email": owner_email, "display_name": "Magne"}
+    reg_res = client.post("/v1/user/register", json=body, headers=headers)
+    assert reg_res.status_code in (200, 201)
+    reg_data = reg_res.json()
+    assert reg_data["status"] == "active"
+    assert reg_data["role"] == "owner"
+    assert reg_data["is_owner"] is True
+
+    # Persisted to store
+    stored = memory.get("users", owner_uid)
+    assert stored["status"] == "active"
+    assert stored["role"] == "owner"
+    assert stored["is_owner"] is True
+
+    # Profile also heals if doc regressed to pending_payment
+    memory.put("users", owner_uid, {**stored, "status": "pending_payment", "role": "athlete", "is_owner": False}, merge=False)
+    prof_res = client.get("/v1/user/profile", headers=headers)
+    assert prof_res.status_code == 200
+    prof_data = prof_res.json()
+    assert prof_data["status"] == "active"
+    assert prof_data["role"] == "owner"
+    assert prof_data["is_owner"] is True
+
+    # Persisted again
+    healed = memory.get("users", owner_uid)
+    assert healed["status"] == "active"
+    assert healed["role"] == "owner"
+    assert healed["is_owner"] is True
+
+
+def test_owner_exempt_from_intervals_credentials_active_check(api):
+    client, memory = api
+    owner_uid = "N0lThhWrg4YfdoYwHjJbvl5swmk2"
+    headers = {"x-user-id": owner_uid}
+
+    # Seed user with pending_payment (not yet active)
+    memory.put("users", owner_uid, {
+        "id": owner_uid,
+        "email": "magne@fam-lima.net",
+        "display_name": "Magne",
+        "status": "pending_payment",
+        "role": "athlete",
+        "is_owner": False,
+    }, merge=False)
+
+    # Owner can configure intervals credentials despite pending status
+    res = client.post("/v1/user/intervals-credentials", json={
+        "api_key": "valid_intervals_key",
+        "athlete_id": "i12345",
+    }, headers=headers)
+    assert res.status_code == 200
+    assert res.json()["status"] == "configured"
+
+
+def test_owner_header_x_is_owner(api):
+    client, memory = api
+    headers = {"x-user-id": "arbitrary-owner-id", "x-is-owner": "true"}
+    body = {"email": "other@example.com", "display_name": "Admin"}
+    response = client.post("/v1/user/register", json=body, headers=headers)
+    assert response.status_code == 201
+    assert response.json()["status"] == "active"
+    assert response.json()["role"] == "owner"
+    assert response.json()["is_owner"] is True

@@ -1,7 +1,52 @@
 import html
-from datetime import datetime
+from datetime import datetime, timezone
 
-def render_report(tasks: list[dict]) -> str:
+
+def render_codex_usage(turns: list[dict]) -> str:
+    """Render measured turn snapshots separately from manually recorded stages."""
+    def number(value):
+        return f'{value:,}' if type(value) is int else '—'
+
+    def total(key):
+        measured = [t[key] for t in turns if type(t.get(key)) is int]
+        return number(sum(measured)) if measured else '—'
+
+    if not turns:
+        return '<h2>Codex usage per prompt (turn)</h2><p>No measured Codex turns yet.</p>'
+
+    rows = []
+    for turn in reversed(turns):
+        inp, cached = turn.get('prompt_tokens'), turn.get('cached_input_tokens')
+        new_input = inp - cached if type(inp) is int and type(cached) is int else None
+        try:
+            started = datetime.fromisoformat(turn['started_at']).astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+        except (KeyError, TypeError, ValueError):
+            started = '—'
+        cells = [html.escape(str(turn.get(key) or '—')) for key in ('title', 'model', 'status')]
+        cells += [started, number(inp), number(cached), number(new_input),
+                  number(turn.get('output_tokens')), number(turn.get('total_tokens'))]
+        rows.append('<tr>' + ''.join(f'<td>{cell}</td>' for cell in cells) + '</tr>')
+    return f'''
+        <h2>Codex usage per prompt (turn)</h2>
+        <div class="metrics">
+            <div class="card"><h2>Measured Codex input</h2><p>{total('prompt_tokens')}</p></div>
+            <div class="card"><h2>Of which cached</h2><p>{total('cached_input_tokens')}</p></div>
+            <div class="card"><h2>Measured Codex output</h2><p>{total('output_tokens')}</p></div>
+        </div>
+        <p class="notes">One row covers all model calls in a Codex turn. Input includes cached input;
+        new input is input minus cached input. Repeated context counts again on each call.
+        Output includes reasoning where reported. Total is input plus output.
+        These are local session counters, not subscription allowance, billing, or measured savings.
+        Running turns are partial; a dash means unavailable. Automatic continuations may have their own turn.
+        Only counters and metadata are imported: no prompt bodies. Newest turns appear first.</p>
+        <div class="table-scroll"><table><thead><tr>
+            <th>Prompt / session</th><th>Model</th><th>Status</th><th>Started (UTC)</th>
+            <th>Input</th><th>Cached input</th><th>New input</th><th>Output</th><th>Total</th>
+        </tr></thead><tbody>{''.join(rows)}</tbody></table></div>
+    '''
+
+
+def render_report(tasks: list[dict], codex_turns: list[dict] | None = None) -> str:
     def format_timestamp(ts):
         return datetime.fromisoformat(ts).strftime('%Y-%m-%d %H:%M:%S') if ts else '—'
 
@@ -103,8 +148,9 @@ def render_report(tasks: list[dict]) -> str:
     <body>
         <div class="container">
             <h1>Codex + Local Workers</h1>
+            <p>Report rebuilt: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC</p>
             <div class="workflow" aria-label="Delegation workflow">
-                <span>Codex · Plan &amp; divide</span> → <span>Local model · Draft &amp; iterate</span> → <span>Codex · Review &amp; verify</span>
+                <span>Gemini · Design &amp; review</span> → <span>Codex · Split &amp; implement</span> → <span>Qwen · Bounded draft</span> → <span>Codex · Verify &amp; integrate</span>
             </div>
             <div class="metrics">
             <div class="card">
@@ -121,10 +167,13 @@ def render_report(tasks: list[dict]) -> str:
             </div>
             </div>
             <p class="notes">Codex stages are recorded manually by the assistant; local requests through the helper are logged automatically.
-            Counts show completed stages and drafts, not effort or token savings. Codex token usage is unavailable in this report.
+            Counts show completed stages and drafts, not effort or token savings. Measured Codex turns appear below.
             Local “done” means a draft was generated, not reviewed or accepted. A dash means unmeasured.
             Model token counts use different tokenizers and can include reasoning.
-            Tracking begins when enabled; earlier runs are not reconstructed. Times are UTC. This page refreshes every five seconds.</p>
+            Local draft tracking begins when enabled. The Codex importer includes available AI-Coach session history.
+            Times are UTC. This page reloads every five seconds; run the usage watcher to refresh its data.</p>
+            {render_codex_usage(codex_turns or [])}
+            <h2>Planning stages and local drafts</h2>
             <div class="table-scroll">
             <table>
                 <thead>

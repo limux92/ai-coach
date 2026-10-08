@@ -1,0 +1,346 @@
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+button,
+a,
+input,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
+button {
+  cursor: pointer;
+  color: inherit;
+}
+button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+a {
+  color: var(--blue);
+}
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+h1 {
+  font-size: clamp(1.7rem, 3vw, 2.3rem);
+  line-height: 1.2;
+}
+h2 {
+  font-size: 1.15rem;
+}
+h3 {
+  font-size: 1rem;
+}
+small {
+  font-size: 0.8em;
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid var(--blue);
+  outline-offset: 3px;
+}
+.icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+.brand-mark {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  color: var(--teal);
+}
+.brand-mark svg {
+  width: 100%;
+  height: 100%;
+}
+.wordmark {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 28px;
+  font-weight: 700;
+}
+.wordmark-dot {
+  color: var(--teal);
+}
+.button,
+.icon-button,
+.segmented button,
+.sport-filter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 12px;
+  background: var(--surface);
+  color: var(--ink);
+}
+.button:hover,
+.icon-button:hover,
+.segmented button:hover,
+.sport-filter:hover {
+  background: var(--hover);
+}
+.button.primary {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: var(--bg);
+  font-weight: 650;
+}
+.button.primary:hover {
+  filter: brightness(1.08);
+}
+.icon-button {
+  padding: 7px;
+  width: 36px;
+  flex-shrink: 0;
+}
+.icon-button.small {
+  width: 30px;
+  min-height: 30px;
+  padding: 5px;
+}
+.flipped {
+  transform: rotate(180deg);
+}
+.text-button {
+  border: 0;
+  padding: 6px 0;
+  background: transparent;
+  color: var(--blue);
+}
+.text-button .icon {
+  width: 15px;
+}
+.segmented {
+  display: inline-flex;
+  gap: 4px;
+}
+.segmented button {
+  font-size: 0.85rem;
+}
+.segmented .selected,
+.sport-filter.selected {
+  border-color: var(--blue);
+  color: var(--blue);
+  background: var(--hover);
+}
+.panel,
+.metric-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  min-width: 0;
+}
+.panel-heading,
+.section-heading,
+.metric-top,
+.drawer-header,
+.chat-goal-toggle,
+.chat-goal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.panel-heading,
+.section-heading {
+  gap: 12px;
+}
+.panel-heading {
+  padding: 22px 22px 0;
+}
+.panel-heading p,
+.detail-note,
+.chart-caption {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-top: 7px;
+}
+.quiet-badge {
+  color: var(--muted);
+  padding: 4px 7px;
+  background: var(--bg);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+.sport-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 7px;
+  flex-shrink: 0;
+}
+.sport-icon.run,
+.calendar-card.run {
+  background: var(--run-bg);
+  color: var(--teal);
+}
+.sport-icon.cycle,
+.calendar-card.cycle {
+  background: var(--cycle-bg);
+  color: var(--amber);
+}
+.sport-icon.other,
+.calendar-card.other {
+  background: var(--other-bg);
+  color: var(--other);
+}
+.legend-dot,
+.sport-dot,
+.status-dot {
+  width: 7px;
+  height: 7px;
+  display: inline-block;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.run.legend-dot,
+.run.sport-dot,
+.status-dot,
+.bar-part.run,
+.mini-dot.run {
+  background: var(--teal);
+}
+.cycle.legend-dot,
+.cycle.sport-dot,
+.warn .status-dot,
+.bar-part.cycle,
+.mini-dot.cycle {
+  background: var(--amber);
+}
+.other.legend-dot,
+.other.sport-dot,
+.bar-part.other,
+.mini-dot.other {
+  background: var(--other);
+}
+.legend-planned {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border: 1px dashed var(--muted);
+  border-radius: 2px;
+}
+.empty-state,
+.loading-state,
+.setup-state {
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--muted);
+}
+.empty-state h3,
+.loading-state h2,
+.setup-state h1 {
+  color: var(--ink);
+  margin: 12px 0;
+}
+.empty-state p,
+.setup-state p {
+  max-width: 520px;
+  margin: 0 auto 18px;
+}
+.empty-state.compact {
+  padding: 35px 22px;
+}
+.loading-state {
+  min-height: 280px;
+}
+.alert,
+.inline-error {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--danger);
+  padding: 14px;
+  border: 1px solid var(--danger);
+  border-radius: 7px;
+  margin-bottom: 18px;
+}
+.alert .button {
+  margin-left: auto;
+}
+.alert p {
+  margin-top: 4px;
+  font-size: 0.85rem;
+}
+.spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--line);
+  border-top-color: var(--blue);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+.spinning {
+  animation: spin 1.5s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner,
+  .spinning {
+    animation: none;
+  }
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+.skip-link {
+  position: fixed;
+  top: -80px;
+  left: 16px;
+  z-index: 100;
+  padding: 12px;
+  background: var(--surface);
+}
+.skip-link:focus {
+  top: 12px;
+}
+
+.boot {
+  min-height: 100vh;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 16px;
+  color: var(--muted);
+}
