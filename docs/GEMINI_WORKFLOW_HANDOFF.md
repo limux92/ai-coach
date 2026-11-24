@@ -46,6 +46,11 @@ Outcomes completed & verified:
    - Implemented client-side `localStorage` caching with 30-day retention (`CHAT_CACHE_KEY`, `CHAT_CACHE_TTL_MS`) in `dashboard/src/views/chat.js`. Render cached history instantly (<1ms) when opening the drawer in a new tab or after refresh, then reconcile with authoritative server history in the background.
    - Authored unit test suites: `test_chat_gateway_forwarding_and_list_support` in `adapters/mcp/tests/test_dashboard.py` and 6 localStorage cache/TTL tests in `dashboard/test/chat.test.js`.
    - Quality gates verified: 654 backend tests, 206 adapter tests, 35 dashboard tests passing; file budgets within limits (views/chat.js 11,981 <= 12,000 bytes; JS gzip 48.80 KB <= 50.00 KB; CSS gzip 6.00 KB <= 6.00 KB).
+   - Cloud Release & Verification:
+     * Commit: `330254b21a801f8a49632de567aa9668520a0e54` on `release/lightweight-dark-dashboard` (PR #4, 4/4 CI checks passed).
+     * Deployment receipt: `.local/deployments/261008-205732-7544/summary.json`.
+     * Deployed revisions at 100% traffic: `ai-coach-sync-r-330254b2-261008-205732-7544` and `ai-coach-chat-r-330254b2-261008-205732-7544`.
+     * Verified live production at `https://aiworkoutbuilder.app/dashboard/` (HTTP 200, `/dashboard/config` OK, `/dashboard/api/status` 401).
 
 ## 5 October continuation
 
