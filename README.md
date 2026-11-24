@@ -2,7 +2,8 @@
 
 A self-hosted, single-athlete training archive, dashboard and read-only AI coaching connection. It imports eligible Garmin and Zwift workouts from Intervals.icu, preserves original files, and calculates reusable training summaries.
 
-For a local AI coding assistant, start with the [handoff and deployment runbook](README_LOCAL_AI.md).
+For a fresh coding conversation, start with the [current context](README_CURRENT_CONTEXT.md)
+and `AGENTS.md`. The [local AI runbook](README_LOCAL_AI.md) covers worker and deployment commands.
 
 ## Architecture
 

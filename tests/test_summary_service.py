@@ -195,7 +195,7 @@ def test_late_historical_upload_is_discovered_after_backfill_complete(settings, 
     assert imported["metrics"]["distance_m"] == 5000
     state = store.get("sync_state", "intervals")
     assert state["backfill_complete"] is True
-    assert state["historical_reconcile_cursor"] == (TODAY - timedelta(days=45)).isoformat()
+    assert state["historical_reconcile_cursor"] == (TODAY - timedelta(days=sync_module.RECENT_DAYS + 31)).isoformat()
     assert aggregate(store, "month", imported["local_date"])["totals"]["distance_m"] == 5000
 
 

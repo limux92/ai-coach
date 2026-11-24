@@ -27,7 +27,8 @@ def save_workout(store, doc_id, data, *, merge=True):
     new = {**old, **data} if merge else dict(data)
     if fingerprint(projection(old)) != fingerprint(projection(new)):
         queue_workout(store, doc_id, old, new)
-    store.put('workouts', doc_id, data, merge=merge)
+    from .physiology_evidence import commit_workout
+    commit_workout(store, doc_id, data, merge=merge)
 
 
 def queue_workout(store, doc_id, old, new):

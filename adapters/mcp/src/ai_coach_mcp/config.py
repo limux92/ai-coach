@@ -27,6 +27,7 @@ class Settings:
     oauth_redirect_uris: tuple[str, ...]
     auth_database: str = "ai-coach-auth"
     read_scope: str = "coach:read"
+    multi_tenant: bool = False
 
     def __post_init__(self):
         backend = https_url(self.backend_url, "BACKEND_URL", origin_only=True)
@@ -67,8 +68,10 @@ class Settings:
 
     @classmethod
     def from_env(cls):
+        multi_tenant = os.environ.get("MULTI_TENANT", "").lower() in {"1", "true", "yes"}
         return cls(oauth_redirect_uris=json.loads(os.environ["OAUTH_REDIRECT_URIS"]),
                    auth_database=os.environ.get("AUTH_FIRESTORE_DATABASE", "ai-coach-auth"),
+                   multi_tenant=multi_tenant,
                    **{field: os.environ[env] for field, env in {
             "backend_url": "BACKEND_URL", "backend_allowed_host": "BACKEND_ALLOWED_HOST",
             "public_url": "MCP_PUBLIC_URL", "firebase_project_id": "FIREBASE_PROJECT_ID",

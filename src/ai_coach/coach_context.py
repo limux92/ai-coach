@@ -334,4 +334,46 @@ def build_context(store, settings, *, days, upcoming, sync_status):
         if not complete:
             result["selection"][collection].update(selection_complete=False, scan_limit=MAX_SCAN_RECORDS, scan_resume_after=resume)
     result["selection_note"] = "Bounded latest facts/soonest plans; detail fields omitted. Follow lookup next_cursor pages for more. A partial scan cannot establish the latest records. /v1/summaries?period=week&date=YYYY-MM-DD gives rich totals."
+    from .physiology_context import read_context
+    result["physiology"] = read_context(store, settings, now)
+    athlete_doc = None
+    source_conn = sync_status.get("source_connection")
+    source_athlete_id = source_conn.get("source_athlete_id") if isinstance(source_conn, dict) else None
+    if not source_athlete_id:
+        source_athlete_id = (
+            sync_status.get("source_athlete_id")
+            or sync_status.get("athlete_id")
+            or (store.get("sync_state", "intervals") or {}).get("source_athlete_id")
+        )
+    if source_athlete_id:
+        from .normalize import source_document_id
+        try:
+            athlete_doc = store.get("athletes", source_document_id(source_athlete_id))
+        except Exception:
+            athlete_doc = None
+    if athlete_doc is None and hasattr(store, "scan"):
+        try:
+            athletes = store.scan("athletes", limit=1)
+            if athletes:
+                athlete_doc = athletes[0]
+        except Exception:
+            athlete_doc = None
+
+    if athlete_doc:
+        result["athlete"] = {
+            "source_id": athlete_doc.get("source_id"),
+            "name": athlete_doc.get("name"),
+            "ftp_w": athlete_doc.get("ftp_w"),
+            "model_cp_w": athlete_doc.get("model_cp_w"),
+            "model_w_prime_j": athlete_doc.get("model_w_prime_j"),
+            "weight_kg": athlete_doc.get("weight_kg"),
+            "resting_hr_bpm": athlete_doc.get("resting_hr_bpm"),
+            "max_hr_bpm": athlete_doc.get("max_hr_bpm"),
+            "lthr_bpm": athlete_doc.get("lthr_bpm"),
+            "power_zones": athlete_doc.get("power_zones"),
+            "hr_zones": athlete_doc.get("hr_zones"),
+        }
+    else:
+        result["athlete"] = None
     return result
+

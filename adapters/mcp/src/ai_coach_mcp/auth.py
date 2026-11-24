@@ -61,7 +61,9 @@ class OwnerTokenVerifier(TokenVerifier):
             now = time.time()
             if any(type(claims[field]) is not int for field in ("exp", "iat", "auth_time")):
                 return None
-            if (claims["sub"] != self.settings.owner_subject or claims["email_verified"] is not True
+            if ((not self.settings.multi_tenant and claims["sub"] != self.settings.owner_subject)
+                    or not isinstance(claims["sub"], str) or not 1 <= len(claims["sub"]) <= 128
+                    or claims["email_verified"] is not True
                     or claims["firebase"]["sign_in_provider"] != "google.com"
                     or not 0 < claims["auth_time"] <= claims["iat"] <= now
                     or claims["exp"] <= claims["iat"]):

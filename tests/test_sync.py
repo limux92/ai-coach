@@ -97,7 +97,7 @@ class FakeClient:
         return {"id": "i42"}
 
     def list_activities(self, oldest, newest):
-        if self.fail_history and oldest < TODAY - timedelta(days=13):
+        if self.fail_history and oldest < TODAY - timedelta(days=module.RECENT_DAYS - 1):
             raise IntervalsError("upstream_unavailable", retryable=True, status_code=503)
         return [copy.deepcopy(p) for p in self.activities
                 if oldest.isoformat() <= p["start_date_local"][:10] <= newest.isoformat()]
@@ -270,8 +270,8 @@ def test_strava_and_unknown_sources_excluded_before_any_archive(settings):
 
 @pytest.mark.parametrize("failure", ["fetch", "archive"])
 def test_failed_history_window_does_not_advance_and_retries(settings, failure):
-    store, client = MemoryStore(), FakeClient([activity(days_ago=20)])
-    initial_cursor = (TODAY - timedelta(days=14)).isoformat()
+    store, client = MemoryStore(), FakeClient([activity(days_ago=module.RECENT_DAYS + 6)])
+    initial_cursor = (TODAY - timedelta(days=module.RECENT_DAYS)).isoformat()
     store.put("sync_state", "intervals", {"backfill_cursor": initial_cursor})
     client.fail_history = failure == "fetch"
     store.fail_archive = failure == "archive"
@@ -344,8 +344,8 @@ def test_busy_lease_does_not_touch_provider(settings):
 
 
 def test_terminal_bad_fit_cannot_block_historical_cursor_forever(settings, monkeypatch):
-    store, client = MemoryStore(), FakeClient([activity(days_ago=20)])
-    initial_cursor = (TODAY - timedelta(days=14)).isoformat()
+    store, client = MemoryStore(), FakeClient([activity(days_ago=module.RECENT_DAYS + 6)])
+    initial_cursor = (TODAY - timedelta(days=module.RECENT_DAYS)).isoformat()
     store.put("sync_state", "intervals", {"backfill_cursor": initial_cursor})
     def reject(*args, **kwargs):
         raise InvalidActivityFile("synthetic bad FIT")

@@ -6,11 +6,16 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from google.api_core.exceptions import PreconditionFailed
+from google.api_core.exceptions import AlreadyExists, PreconditionFailed
 from google.cloud import firestore, storage
 from google.cloud.firestore_v1.base_query import FieldFilter
 
-COLLECTIONS = {"workouts", "planned_workouts", "wellness", "observations", "sync_state", "sync_runs", "athletes", "schema", "training_summaries", "summary_jobs"}
+COLLECTIONS = {"workouts", "planned_workouts", "wellness", "observations", "sync_state", "sync_runs", "athletes", "schema", "training_summaries", "summary_jobs", "credentials"}
+COLLECTIONS |= {"physiology_revisions", "physiology_jobs", "physiology_efforts", "physiology_models",
+                "physiology_analyses", "physiology_contexts", "upstream_budgets", "activity_discovery", "users",
+                "chat_messages", "token_usage", "athlete_goals"}
+GLOBAL_COLLECTIONS = frozenset({"schema", "upstream_budgets", "users"})
+TENANT_COLLECTIONS = frozenset(COLLECTIONS - GLOBAL_COLLECTIONS)
 
 
 def utcnow():
@@ -35,14 +40,39 @@ def safe_id(value: Any) -> str:
 
 
 class Store:
-    def __init__(self, settings):
+    user_id: str | None = None
+    settings: Any = None
+    db: Any = None
+    bucket: Any = None
+
+    def __init__(self, settings, *, user_id: str | None = None):
+        self.settings = settings
+        self.user_id = safe_id(user_id) if user_id is not None else None
         self.db = firestore.Client(project=settings.project, database=settings.database)
         self.bucket = storage.Client(project=settings.project).bucket(settings.bucket)
 
-    def ref(self, collection, doc_id):
+    def for_user(self, user_id: str | None) -> "Store":
+        store = Store.__new__(Store)
+        store.settings = getattr(self, "settings", None)
+        store.user_id = safe_id(user_id) if user_id is not None else None
+        store.db = getattr(self, "db", None)
+        store.bucket = getattr(self, "bucket", None)
+        return store
+
+    def _collection_ref(self, collection: str):
         if collection not in COLLECTIONS:
             raise ValueError("Unknown collection")
-        return self.db.collection(collection).document(safe_id(doc_id))
+        if self.user_id is not None and collection in TENANT_COLLECTIONS:
+            return self.db.collection("users").document(self.user_id).collection(collection)
+        return self.db.collection(collection)
+
+    def list_active_users(self) -> list[dict[str, Any]]:
+        """Retrieve all registered users with active subscription status."""
+        query = self.db.collection("users").where(filter=FieldFilter("status", "==", "active"))
+        return [dict(s.to_dict(), id=s.id) for s in query.stream()]
+
+    def ref(self, collection, doc_id):
+        return self._collection_ref(collection).document(safe_id(doc_id))
 
     def get(self, collection, doc_id):
         snapshot = self.ref(collection, doc_id).get()
@@ -51,10 +81,78 @@ class Store:
     def put(self, collection, doc_id, data, *, merge=True):
         self.ref(collection, doc_id).set(data, merge=merge)
 
+    def create(self, collection, doc_id, data):
+        """Create-only deterministic objects; never replace a historical result."""
+        try:
+            self.ref(collection, doc_id).create(data)
+        except AlreadyExists:
+            pass
+
+    def list_chat_messages(self, limit: int = 20) -> list[dict[str, Any]]:
+        """Retrieve recent chat messages in chronological order."""
+        query = (self._collection_ref("chat_messages")
+                 .order_by("created_at", direction=firestore.Query.DESCENDING)
+                 .limit(limit))
+        messages = [dict(s.to_dict(), id=s.id) for s in query.stream()]
+        messages.reverse()
+        return messages
+
+    def save_chat_message(self, message_id: str, data: dict[str, Any]) -> None:
+        self.put("chat_messages", message_id, data, merge=False)
+
+    def record_token_usage(self, usage_id: str, data: dict[str, Any]) -> None:
+        self.put("token_usage", usage_id, data, merge=False)
+
+    def get_athlete_goal(self) -> dict[str, Any]:
+        doc = self.get("athlete_goals", "current")
+        return doc or {"goal": "", "word_count": 0, "updated_at": None}
+
+    def save_athlete_goal(self, goal: str, word_count: int) -> dict[str, Any]:
+        data = {
+            "goal": goal.strip(),
+            "word_count": word_count,
+            "updated_at": utcnow().isoformat(),
+        }
+        self.put("athlete_goals", "current", data, merge=True)
+        return data
+
+    def reserve_upstream_request(self, pool):
+        from .upstream_budget import reserve_state
+        ref = self.ref("upstream_budgets", pool)
+        @firestore.transactional
+        def reserve(transaction):
+            state = ref.get(transaction=transaction).to_dict() or {}
+            transaction.set(ref, reserve_state(state, utcnow()))
+        reserve(self.db.transaction())
+
+    def defer_upstream_requests(self, pool, until):
+        ref = self.ref("upstream_budgets", pool)
+        @firestore.transactional
+        def defer(transaction):
+            state = ref.get(transaction=transaction).to_dict() or {}
+            previous = state.get("cooldown_until")
+            transaction.set(ref, {"cooldown_until": max(previous, until) if previous else until}, merge=True)
+        defer(self.db.transaction())
+
+    def commit_workout_evidence(self, doc_id, data, *, merge=True):
+        from .physiology_evidence import merged_workout, transition
+        ref = self.ref("workouts", doc_id)
+        @firestore.transactional
+        def commit(transaction):
+            old = ref.get(transaction=transaction).to_dict() or {}
+            new = merged_workout(old, data, doc_id, merge)
+            revision = transition(old, new, known_at=firestore.SERVER_TIMESTAMP)
+            if revision:
+                transaction.create(self.ref("physiology_revisions", revision["id"]), revision)
+                transaction.create(self.ref("physiology_jobs", revision["id"]), {"id": revision["id"], "pending": True})
+                transaction.set(self.ref("sync_state", "physiology"), {"status": "pending"}, merge=True)
+                new.update(physiology_revision_id=revision["id"], physiology_evidence_sha256=revision["evidence_sha256"],
+                           physiology_revision_sequence=revision["sequence"])
+            transaction.set(ref, new)
+        commit(self.db.transaction())
+
     def list(self, collection, oldest, newest, *, limit=200, after=None):
-        if collection not in COLLECTIONS:
-            raise ValueError("Unknown collection")
-        query = (self.db.collection(collection)
+        query = (self._collection_ref(collection)
                  .where(filter=FieldFilter("local_date", ">=", oldest))
                  .where(filter=FieldFilter("local_date", "<=", newest))
                  .order_by("local_date").order_by("__name__"))
@@ -68,7 +166,8 @@ class Store:
     def archive(self, path, data: bytes, *, content_type="application/octet-stream"):
         """Content-addressed objects are immutable. Replays never replace originals."""
         digest = hashlib.sha256(data).hexdigest()
-        name = f"{path}/{digest}"
+        prefix = f"users/{self.user_id}/" if self.user_id else ""
+        name = f"{prefix}{path}/{digest}"
         blob = self.bucket.blob(name)
         try:
             blob.upload_from_string(data, content_type=content_type, if_generation_match=0, checksum="auto")
@@ -79,9 +178,7 @@ class Store:
 
     def scan(self, collection, *, limit=200, after=None, pending=None):
         """Bounded ID pagination for migrations and durable rebuild jobs."""
-        if collection not in COLLECTIONS:
-            raise ValueError("Unknown collection")
-        query = self.db.collection(collection)
+        query = self._collection_ref(collection)
         if pending is not None:
             query = query.where(filter=FieldFilter("pending", "==", pending))
         query = query.order_by("__name__")
@@ -111,6 +208,25 @@ class Store:
             transaction.set(ref, {"lease_owner": owner, "lease_expires_at": utcnow() + timedelta(seconds=seconds)}, merge=True)
             return True
         return acquire(self.db.transaction())
+
+    def assert_sync_lease(self, owner):
+        state = self.get("sync_state", "intervals") or {}
+        expires = state.get("lease_expires_at")
+        if not owner or state.get("lease_owner") != owner or not expires or expires <= utcnow():
+            raise RuntimeError("Sync lease ownership expired")
+
+    def put_if_sync_owner(self, collection, doc_id, data, owner, *, merge=True):
+        """Fence current physiology pointers against expired/replaced workers."""
+        lease = self.ref("sync_state", "intervals")
+        destination = self.ref(collection, doc_id)
+        @firestore.transactional
+        def publish(transaction):
+            state = lease.get(transaction=transaction).to_dict() or {}
+            expires = state.get("lease_expires_at")
+            if not owner or state.get("lease_owner") != owner or not expires or expires <= utcnow():
+                raise RuntimeError("Sync lease ownership expired")
+            transaction.set(destination, data, merge=merge)
+        publish(self.db.transaction())
 
     def release_lease(self, owner, updates):
         ref = self.ref("sync_state", "intervals")

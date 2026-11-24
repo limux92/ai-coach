@@ -6,12 +6,16 @@ single-use codes, scoped opaque tokens and refresh rotation/replay revocation.
 import re
 import secrets
 import time
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from mcp.server.auth.provider import (AccessToken, AuthorizationCode, AuthorizeError,
     RefreshToken, RegistrationError, TokenError, construct_redirect_uri)
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 from mcp.server.auth.middleware.client_auth import ClientAuthenticator, AuthenticationError
+from mcp.server.auth.handlers.authorize import AuthorizationHandler
+from mcp.server.auth.routes import build_metadata
+from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
+from pydantic import AnyHttpUrl
 from starlette.responses import JSONResponse, RedirectResponse
 from starlette.routing import Route
 
@@ -130,6 +134,30 @@ class OAuthProvider:
         raise TokenError("unsupported_grant_type", "Identity assertion grants are not supported")
 
     def routes(self):
+        async def metadata(request):
+            # RFC 9207 enables ChatGPT's stable, exactly allowlisted callback.
+            # Success responses already include iss in the consent handler below.
+            value = build_metadata(AnyHttpUrl(self.settings.oauth_issuer), None,
+                ClientRegistrationOptions(enabled=True, valid_scopes=[self.settings.read_scope],
+                                          default_scopes=[self.settings.read_scope]),
+                RevocationOptions(enabled=True)).model_dump(mode="json", exclude_none=True)
+            # AnyHttpUrl can append a slash; RFC 9207 requires exact issuer equality.
+            return JSONResponse({**value, "issuer": self.settings.oauth_issuer,
+                                 "authorization_response_iss_parameter_supported": True})
+
+        async def authorize(request):
+            # Keep SDK client/redirect/PKCE validation. Its error redirects need
+            # the same issuer identification as successful consent responses.
+            response = await AuthorizationHandler(self).handle(request)
+            if response.status_code == 302 and "location" in response.headers:
+                target = urlsplit(response.headers["location"])
+                query = parse_qsl(target.query, keep_blank_values=True)
+                if any(name == "error" for name, _ in query):
+                    query = [(name, value) for name, value in query if name != "iss"]
+                    query.append(("iss", self.settings.oauth_issuer))
+                    response.headers["location"] = target._replace(query=urlencode(query)).geturl()
+            return response
+
         async def revoke(request):
             # SDK 2.2.0 requires client_secret even for public clients in its
             # revocation form. Authenticate with the SDK, then apply RFC 7009.
@@ -192,7 +220,9 @@ class OAuthProvider:
                 code=code, state=params["state"], iss=self.settings.oauth_issuer)})
             response.delete_cookie(COOKIE, path="/", secure=True, httponly=True, samesite="lax")
             return response
-        return [Route("/oauth/start", start), Route("/oauth/consent", consent, methods=["GET", "POST"]),
+        return [Route("/.well-known/oauth-authorization-server", metadata),
+                Route("/authorize", authorize, methods=["GET", "POST"]),
+                Route("/oauth/start", start), Route("/oauth/consent", consent, methods=["GET", "POST"]),
                 Route("/revoke", revoke, methods=["POST"])]
 
 
